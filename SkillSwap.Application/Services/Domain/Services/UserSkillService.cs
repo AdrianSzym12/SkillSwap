@@ -267,6 +267,25 @@ namespace SkillSwap.Application.Services.Domain.Services
                 return new() { IsSuccess = false, Message = $"Error updating: {ex.Message}" };
             }
         }
+        public async Task<Result<List<UserSkillDTO>>> GetMeAsync(int currentUserId)
+        {
+            try
+            {
+                var profile = await _profileRepository.GetByUserIdAsync(currentUserId);
+                if (profile is null || profile.IsDeleted)
+                    return new() { IsSuccess = false, Message = "Profile not found" };
 
+                var entities = await _userSkillRepository.GetByProfileIdAsync(profile.Id);
+                var dtos = _mapper.Map<List<UserSkillDTO>>(entities);
+
+                return new() { IsSuccess = true, Data = dtos, Message = "Retrieved" };
+            }
+            catch (Exception ex)
+            {
+                return new() { IsSuccess = false, Message = $"Error: {ex.Message}" };
+            }
+        }
+
+       
     }
 }
