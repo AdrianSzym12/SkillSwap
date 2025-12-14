@@ -32,6 +32,13 @@ namespace SkillSwap.Persistence.Repositories
 
             return partners.ToHashSet();
         }
-
+        public async Task<List<Match>> GetByProfileIdWithProfilesAsync(int profileId)
+        {
+            return await _context.Matches
+                .Include(m => m.Profile1)
+                .Include(m => m.Profile2)
+                .Where(m => !m.IsDeleted && (m.Profile1Id == profileId || m.Profile2Id == profileId))
+                .ToListAsync();
+        }
     }
 }
