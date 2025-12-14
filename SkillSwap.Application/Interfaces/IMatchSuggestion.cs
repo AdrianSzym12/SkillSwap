@@ -1,7 +1,7 @@
 ﻿using SkillSwap.Application.DTO;
 using SkillSwap.Domain.Entities.Commons;
 
-namespace SkillSwap.Application.Interfaces.ExternalInterfaces
+namespace SkillSwap.Application.Interfaces
 {
     public interface IMatchSuggestion
     {

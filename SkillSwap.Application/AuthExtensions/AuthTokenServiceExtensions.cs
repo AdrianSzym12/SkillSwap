@@ -1,13 +1,12 @@
-﻿// SkillSwap.API/Extensions/AuthServiceExtensions.cs
-using System.Text;
+﻿using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using SkillSwap.Domain.Entities.Config;
 
-namespace SkillSwap.Application.Extensions
+namespace SkillSwap.Application.AuthExtensions
 {
-    public static class AuthServiceExtensions
+    public static class AuthTokenServiceExtensions
     {
         public static IServiceCollection AddJwtAuthentication(
             this IServiceCollection services,
