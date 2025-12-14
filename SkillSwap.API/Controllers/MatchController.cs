@@ -13,12 +13,12 @@ namespace SkillSwap.API.Controllers
     public class MatchController : ControllerBase
     {
         private readonly IMatchService _matchService;
-        private readonly IMatchSuggestion _matchSuggestionService;
+        private readonly IMatchSuggestionService _matchSuggestionService;
         private readonly IMatchSwipeService _matchSwipeService;
 
         public MatchController(
             IMatchService matchService,
-            IMatchSuggestion matchSuggestionService,
+            IMatchSuggestionService matchSuggestionService,
             IMatchSwipeService matchSwipeService)
         {
             _matchService = matchService;

@@ -4,7 +4,7 @@ using SkillSwap.API.Extensions;
 using SkillSwap.API.Middleware;
 using SkillSwap.Application;
 using SkillSwap.Application.Commons;
-using SkillSwap.Application.Extensions;
+using SkillSwap.Application.AuthExtensions;
 using SkillSwap.Application.Mappers;
 using SkillSwap.Domain.Entities.Config;
 using SkillSwap.Infrastructure;
