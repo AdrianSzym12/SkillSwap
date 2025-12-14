@@ -3,7 +3,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SkillSwap.Application.DTO;
-using SkillSwap.Application.Interfaces.ExternalInterfaces;
+using SkillSwap.Application.Interfaces;
 
 namespace SkillSwap.API.Controllers
 {
@@ -14,23 +14,26 @@ namespace SkillSwap.API.Controllers
     {
         private readonly IMatchService _matchService;
         private readonly IMatchSuggestion _matchSuggestionService;
+        private readonly IMatchSwipeService _matchSwipeService;
 
-        public MatchController(IMatchService matchService, IMatchSuggestion matchSuggestionService)
+        public MatchController(
+            IMatchService matchService,
+            IMatchSuggestion matchSuggestionService,
+            IMatchSwipeService matchSwipeService)
         {
             _matchService = matchService;
             _matchSuggestionService = matchSuggestionService;
+            _matchSwipeService = matchSwipeService;
         }
 
         private int? GetCurrentUserId()
         {
-            var idClaim = User.Claims.FirstOrDefault(c =>
-                c.Type == JwtRegisteredClaimNames.Sub ||
-                c.Type == ClaimTypes.NameIdentifier);
+            var value =
+                User.FindFirstValue(JwtRegisteredClaimNames.Sub) ??
+                User.FindFirstValue(ClaimTypes.NameIdentifier) ??
+                User.FindFirstValue("nameid");
 
-            if (idClaim == null || !int.TryParse(idClaim.Value, out var userId))
-                return null;
-
-            return userId;
+            return int.TryParse(value, out var userId) ? userId : null;
         }
 
         [HttpGet("{id:int}")]
@@ -135,11 +138,11 @@ namespace SkillSwap.API.Controllers
             if (userId is null)
                 return Unauthorized("Invalid token");
 
-            var result = await _matchService.LikeAsync(profileId, userId.Value);
+            var result = await _matchSwipeService.LikeAsync(userId.Value, profileId);
             if (!result.IsSuccess)
                 return Problem(detail: result.Message);
 
-            return Ok(result.Data);
+            return Ok(new { message = result.Message, data = result.Data });
         }
 
         [HttpPost("{profileId:int}/dislike")]
@@ -149,11 +152,11 @@ namespace SkillSwap.API.Controllers
             if (userId is null)
                 return Unauthorized("Invalid token");
 
-            var result = await _matchService.DislikeAsync(profileId, userId.Value);
+            var result = await _matchSwipeService.DislikeAsync(userId.Value, profileId);
             if (!result.IsSuccess)
                 return Problem(detail: result.Message);
 
-            return Ok(new { message = result.Message });
+            return Ok(new { message = result.Message, data = result.Data });
         }
     }
 }
