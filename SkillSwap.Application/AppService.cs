@@ -22,6 +22,7 @@ namespace SkillSwap.Application
             services.AddScoped<ISessionService, SessionService>();
             services.AddScoped<IReviewService, ReviewService>();
             services.AddScoped<IMatchSwipeService, MatchSwipeService>();
+            services.AddScoped<IMatchSuggestionService, MatchSuggestionService>();
 
 
 
