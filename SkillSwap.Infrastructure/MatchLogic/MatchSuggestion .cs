@@ -8,9 +8,9 @@ using SkillSwap.Domain.Interfaces;
 using ProfileEntity = SkillSwap.Domain.Entities.Database.Profile;
 
 
-namespace SkillSwap.Persistence.MatchLogic
+namespace SkillSwap.Infrastructure.MatchLogic
 {
-    public class MatchSuggestion : IMatchSuggestion
+    public class MatchSuggestion
     {
         private readonly IProfileRepository _profileRepository;
         private readonly IUserSkillRepository _userSkillRepository;
