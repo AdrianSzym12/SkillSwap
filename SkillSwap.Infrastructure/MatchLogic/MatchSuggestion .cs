@@ -1,6 +1,6 @@
 ﻿using AutoMapper;
 using SkillSwap.Application.DTO;
-using SkillSwap.Application.Interfaces.ExternalInterfaces;
+using SkillSwap.Application.Interfaces;
 using SkillSwap.Domain.Entities.Commons;
 using SkillSwap.Domain.Entities.Database;
 using SkillSwap.Domain.Enums;

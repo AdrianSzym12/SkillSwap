@@ -18,6 +18,13 @@ namespace SkillSwap.Persistence.Repositories
             return await _context.Users
             .FirstOrDefaultAsync(u => u.Email == email && !u.IsDeleted);
         }
+        public async Task<List<User>> GetByIdsAsync(List<int> userIds)
+        {
+            return await _context.Users
+                .Where(u => userIds.Contains(u.Id) && !u.IsDeleted)
+                .ToListAsync();
+        }
+
     }
 
 }

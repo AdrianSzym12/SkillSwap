@@ -1,12 +1,11 @@
 ﻿using AutoMapper;
 using SkillSwap.Application.DTO;
-using SkillSwap.Application.Interfaces.ExternalInterfaces;
+using SkillSwap.Application.Interfaces;
 using SkillSwap.Domain.Entities.Commons;
 using SkillSwap.Domain.Entities.Database;
 using SkillSwap.Domain.Enums;
 using SkillSwap.Domain.Interfaces;
 using ProfileEntity = SkillSwap.Domain.Entities.Database.Profile;
-
 
 namespace SkillSwap.Application.Services.Domain.Services
 {
@@ -46,40 +45,64 @@ namespace SkillSwap.Application.Services.Domain.Services
                     };
                 }
 
-                // moje skille
-                var mySkills = await _userSkillRepository.GetByProfileIdAsync(myProfile.Id);
+                var allProfiles = await _profileRepository.GetAsync();
+                var candidates = allProfiles
+                    .Where(p => !p.IsDeleted && p.Id != myProfile.Id)
+                    .ToList();
+
+                var excludedPartners = await _matchRepository.GetPartnerProfileIdsAsync(myProfile.Id);
+                candidates = candidates
+                    .Where(p => !excludedPartners.Contains(p.Id))
+                    .ToList();
+
+                if (candidates.Count == 0)
+                {
+                    return new()
+                    {
+                        IsSuccess = true,
+                        Data = new List<MatchSuggestionDTO>(),
+                        Message = "No candidates"
+                    };
+                }
+
+                var profileIds = candidates.Select(p => p.Id).ToList();
+                profileIds.Add(myProfile.Id);
+
+                var allSkills = await _userSkillRepository.GetByProfileIdsAsync(profileIds);
+
+                var skillsByProfile = allSkills
+                    .GroupBy(s => s.ProfileId)
+                    .ToDictionary(g => g.Key, g => g.ToList());
+
+                skillsByProfile.TryGetValue(myProfile.Id, out var mySkills);
+                mySkills ??= new List<UserSkill>();
+
                 var myTeach = mySkills.Where(s => s.Learned).ToList();
                 var myLearn = mySkills.Where(s => !s.Learned).ToList();
 
                 var myTeachIds = myTeach.Select(s => s.SkillId).ToHashSet();
                 var myLearnIds = myLearn.Select(s => s.SkillId).ToHashSet();
 
-                // wszystkie profile (bez usuniętych)
-                var allProfiles = await _profileRepository.GetAsync();
-
-                // istniejące matche – nie proponujemy kogoś, z kim już masz match
-                var allMatches = await _matchRepository.GetAsync();
-                var myMatchPartners = allMatches
-                    .Where(m => m.Profile1Id == myProfile.Id || m.Profile2Id == myProfile.Id)
-                    .Select(m => m.Profile1Id == myProfile.Id ? m.Profile2Id : m.Profile1Id)
-                    .ToHashSet();
-
-                var suggestions = new List<MatchSuggestionDTO>();
-
-                foreach (var profile in allProfiles)
+                if (mySkills.Count == 0)
                 {
-                    if (profile.Id == myProfile.Id)
-                        continue;
+                    return new()
+                    {
+                        IsSuccess = false,
+                        Message = "Profile not ready for matching. Add at least 1 skill."
+                    };
+                }
 
-                    if (profile.IsDeleted)
-                        continue;
+                var userIds = candidates.Select(p => p.UserId).Distinct().ToList();
+                userIds.Add(myProfile.UserId);
 
-                    if (myMatchPartners.Contains(profile.Id))
-                        continue;
+                var users = await _userRepository.GetByIdsAsync(userIds);
+                var usersById = users.ToDictionary(u => u.Id, u => u);
 
-                    // skille drugiego profilu
-                    var otherSkills = await _userSkillRepository.GetByProfileIdAsync(profile.Id);
-                    if (!otherSkills.Any())
+                var suggestions = new List<MatchSuggestionDTO>(candidates.Count);
+
+                foreach (var profile in candidates)
+                {
+                    if (!skillsByProfile.TryGetValue(profile.Id, out var otherSkills) || otherSkills.Count == 0)
                         continue;
 
                     var otherTeach = otherSkills.Where(s => s.Learned).ToList();
@@ -88,41 +111,29 @@ namespace SkillSwap.Application.Services.Domain.Services
                     var otherTeachIds = otherTeach.Select(s => s.SkillId).ToHashSet();
                     var otherLearnIds = otherLearn.Select(s => s.SkillId).ToHashSet();
 
-                    // Czy on może mnie uczyć?
                     var teachMeCount = myLearnIds.Intersect(otherTeachIds).Count();
-                    // Czy ja mogę uczyć jego?
                     var teachThemCount = myTeachIds.Intersect(otherLearnIds).Count();
 
                     if (teachMeCount == 0 && teachThemCount == 0)
-                        continue; // brak sensownej wymiany – skip
+                        continue;
 
-                    // dopasowanie skilli (czy w ogóle możemy się wymieniać)
                     double skillFitScore = CalculateSkillFitScore(teachMeCount, teachThemCount);
+                    double levelFitScore = ComputeLevelFitScore(myTeach, myLearn, otherTeach, otherLearn);
 
-                    // nowość: dopasowanie poziomów (BEGINNER/ADVANCED itd.)
-                    double levelFitScore = ComputeLevelFitScore(
-                        myTeach, myLearn,
-                        otherTeach, otherLearn);
-
-                    // preferencje spotkań i stylu nauki
                     double meetingTypeScore = ComputeMeetingTypeScore(myProfile, profile);
                     double learningStyleScore = ComputeLearningStyleScore(myProfile, profile);
 
-                    // prosty distanceScore na bazie Country + meeting type
-                    double distanceScore = ComputeDistanceScore(myProfile, profile, meetingTypeScore);
+                    double distanceScore = ComputeDistanceScore(myProfile, profile);
+                    double availabilityScore = ComputeAvailabilityScore(myProfile, profile);
 
-                    // availability – na razie 1.0, można rozbudować później
-                    double availabilityScore = 1.0;
-
-                    // scalanie preferencji (typ spotkań + styl nauki) w jeden score 0–1
                     double preferenceScore = 0.6 * meetingTypeScore + 0.4 * learningStyleScore;
-                    var otherUser = await _userRepository.GetAsync(profile.UserId);
-                    // opinie i profil jak wcześniej
+
+                    usersById.TryGetValue(profile.UserId, out var otherUser);
+
                     double opinionFactor = ComputeOpinionFactor(otherUser);
                     double profileFactor = ComputeProfileFactor(profile);
                     double newUserBoost = (otherUser?.ReviewsCount ?? 0) == 0 ? 1.05 : 1.0;
 
-                    // wzór z Twojego opisu:
                     double baseScore =
                         skillFitScore * 0.4 +
                         levelFitScore * 0.2 +
@@ -136,10 +147,18 @@ namespace SkillSwap.Application.Services.Domain.Services
                     {
                         ProfileId = profile.Id,
                         Profile = _mapper.Map<ProfileDTO>(profile),
+
                         MatchScore = matchScore,
+
                         SkillFitScore = skillFitScore,
+                        LevelFitScore = levelFitScore,
+                        AvailabilityScore = availabilityScore,
+                        PreferenceScore = preferenceScore,
+                        DistanceScore = distanceScore,
+
                         OpinionFactor = opinionFactor,
-                        ProfileFactor = profileFactor
+                        ProfileFactor = profileFactor,
+                        NewUserBoost = newUserBoost
                     });
                 }
 
@@ -165,64 +184,46 @@ namespace SkillSwap.Application.Services.Domain.Services
             }
         }
 
-        private double CalculateSkillFitScore(int teachMeCount, int teachThemCount)
+
+        private static double CalculateSkillFitScore(int teachMeCount, int teachThemCount)
         {
-            // można potem rozbudować, na razie prosto:
-            // 0.6 za to, że on umie coś, czego ja chcę się uczyć
-            // 0.4 za to, że ja umiem coś, czego on chce się uczyć
             double score = 0.0;
-
-            if (teachMeCount > 0)
-                score += 0.6;
-
-            if (teachThemCount > 0)
-                score += 0.4;
-
-            return score; // 0, 0.6, 0.4, 1.0
+            if (teachMeCount > 0) score += 0.6;
+            if (teachThemCount > 0) score += 0.4;
+            return score;
         }
 
-        private double ComputeOpinionFactor(User? user)
+        private static double ComputeOpinionFactor(User? user)
         {
-            // brak usera / brak opinii -> neutralnie
             if (user == null || user.ReviewsCount == 0)
                 return 1.0;
 
-            // teachingScore = knowledge * 0.5 + cooperation * 0.3 + work * 0.2
             double teachingScore =
                 user.AvgKnowledgeGainRating * 0.5 +
                 user.AvgCooperationRating * 0.3 +
                 user.AvgWorkQualityRating * 0.2;
 
-            // rating 1..5 przemapujemy na factor 0.6..1.1
-            // 1 -> 0.6, 5 -> 1.1
-            double normalized = (teachingScore - 1.0) / 4.0; // 0..1
-            if (normalized < 0) normalized = 0;
-            if (normalized > 1) normalized = 1;
+            double normalized = (teachingScore - 1.0) / 4.0;
+            normalized = Math.Clamp(normalized, 0.0, 1.0);
 
-            double factor = 0.6 + normalized * 0.5; // 0.6..1.1
-            return factor;
+            return 0.6 + normalized * 0.5; 
         }
 
-        private double ComputeProfileFactor(ProfileEntity profile)
+        private static double ComputeProfileFactor(ProfileEntity profile)
         {
             int total = 4;
             int filled = 0;
 
-            if (!string.IsNullOrWhiteSpace(profile.UserName))
-                filled++;
-            if (!string.IsNullOrWhiteSpace(profile.Bio))
-                filled++;
-            if (profile.Avatar != null && profile.Avatar.Length > 0)
-                filled++;
-            if (!string.IsNullOrWhiteSpace(profile.Country))
-                filled++;
+            if (!string.IsNullOrWhiteSpace(profile.UserName)) filled++;
+            if (!string.IsNullOrWhiteSpace(profile.Bio)) filled++;
+            if (profile.Avatar != null && profile.Avatar.Length > 0) filled++;
+            if (!string.IsNullOrWhiteSpace(profile.Country)) filled++;
 
             double completion = total > 0 ? (double)filled / total : 0.0;
-
-            // 0.9 .. 1.1
-            return 0.9 + 0.2 * completion;
+            return 0.9 + 0.2 * completion; 
         }
-        private int LevelToInt(SkillLevel level) => level switch
+
+        private static int LevelToInt(SkillLevel level) => level switch
         {
             SkillLevel.Beginner => 1,
             SkillLevel.Intermediate => 2,
@@ -231,17 +232,14 @@ namespace SkillSwap.Application.Services.Domain.Services
             _ => 1
         };
 
-        private double ComputeLevelFitScore(
+        private static double ComputeLevelFitScore(
             List<UserSkill> myTeach,
             List<UserSkill> myLearn,
             List<UserSkill> otherTeach,
             List<UserSkill> otherLearn)
         {
-            // nauczyciel powinien mieć >= poziom ucznia
-
             var scoreParts = new List<double>();
 
-            // 1) on uczy mnie (ja Learn, on Teach)
             var teachMePairs = from mine in myLearn
                                join theirs in otherTeach on mine.SkillId equals theirs.SkillId
                                select new { my = mine, other = theirs };
@@ -252,19 +250,16 @@ namespace SkillSwap.Application.Services.Domain.Services
                 int otherLvl = LevelToInt(p.other.Level);
                 int delta = otherLvl - myLvl;
 
-                double s = delta switch
+                scoreParts.Add(delta switch
                 {
-                    >= 2 => 1.0,   // dużo lepszy
-                    1 => 0.9,   // trochę lepszy
-                    0 => 0.6,   // na podobnym poziomie
-                    -1 => 0.3,   // trochę słabszy
-                    _ => 0.1    // dużo słabszy
-                };
-
-                scoreParts.Add(s);
+                    >= 2 => 1.0,
+                    1 => 0.9,
+                    0 => 0.6,
+                    -1 => 0.3,
+                    _ => 0.1
+                });
             }
 
-            // 2) ja uczę jego (ja Teach, on Learn)
             var teachThemPairs = from mine in myTeach
                                  join theirs in otherLearn on mine.SkillId equals theirs.SkillId
                                  select new { my = mine, other = theirs };
@@ -273,83 +268,84 @@ namespace SkillSwap.Application.Services.Domain.Services
             {
                 int myLvl = LevelToInt(p.my.Level);
                 int otherLvl = LevelToInt(p.other.Level);
-                int delta = myLvl - otherLvl; // ja nauczyciel
+                int delta = myLvl - otherLvl;
 
-                double s = delta switch
+                scoreParts.Add(delta switch
                 {
                     >= 2 => 1.0,
                     1 => 0.9,
                     0 => 0.6,
                     -1 => 0.3,
                     _ => 0.1
-                };
-
-                scoreParts.Add(s);
+                });
             }
 
-            if (!scoreParts.Any())
-                return 0.0;
-
-            return scoreParts.Average(); // 0..1
+            return scoreParts.Any() ? scoreParts.Average() : 0.0;
         }
 
-        private double ComputeMeetingTypeScore(ProfileEntity mine, ProfileEntity other)
+        private static double ComputeMeetingTypeScore(ProfileEntity mine, ProfileEntity other)
         {
             var a = mine.PreferredMeetingType;
             var b = other.PreferredMeetingType;
 
-            if (a == b)
-                return 1.0;
-
-            // jeden Hybrydowy, drugi Online/Offline → da się dogadać
-            if (a == MeetingType.Hybrid || b == MeetingType.Hybrid)
-                return 0.8;
-
-            // jeden chce tylko Online, drugi tylko Offline
+            if (a == b) return 1.0;
+            if (a == MeetingType.Hybrid || b == MeetingType.Hybrid) return 0.8;
             return 0.3;
         }
 
-        private double ComputeLearningStyleScore(ProfileEntity mine, ProfileEntity other)
+        private static double ComputeLearningStyleScore(ProfileEntity mine, ProfileEntity other)
+            => mine.PreferredLearningStyle == other.PreferredLearningStyle ? 1.0 : 0.5;
+
+        private static double ComputeDistanceScore(ProfileEntity mine, ProfileEntity other)
         {
-            if (mine.PreferredLearningStyle == other.PreferredLearningStyle)
+            if (mine.PreferredMeetingType == MeetingType.Online || other.PreferredMeetingType == MeetingType.Online)
                 return 1.0;
 
-            // różne style, ale nie tragedia
-            return 0.5;
-        }
-
-        private double ComputeDistanceScore(ProfileEntity mine, ProfileEntity other, double meetingTypeScore)
-        {
-            // jeżeli ktoś dopuszcza Online/Hybrid → miejsce mniej ważne
-            if (mine.PreferredMeetingType == MeetingType.Online ||
-                other.PreferredMeetingType == MeetingType.Online)
-                return 1.0;
-
-            if (mine.PreferredMeetingType == MeetingType.Hybrid ||
-                other.PreferredMeetingType == MeetingType.Hybrid)
+            if (mine.PreferredMeetingType == MeetingType.Hybrid || other.PreferredMeetingType == MeetingType.Hybrid)
             {
-                // Hybrid + inny kraj → gorzej, ale ok
                 if (!string.IsNullOrWhiteSpace(mine.Country) &&
                     !string.IsNullOrWhiteSpace(other.Country) &&
                     !string.Equals(mine.Country, other.Country, StringComparison.OrdinalIgnoreCase))
-                {
                     return 0.6;
-                }
+
                 return 0.9;
             }
 
-            // obaj chcą Offline:
-            if (!string.IsNullOrWhiteSpace(mine.Country) &&
-                !string.IsNullOrWhiteSpace(other.Country))
-            {
-                if (string.Equals(mine.Country, other.Country, StringComparison.OrdinalIgnoreCase))
-                    return 1.0;
-                else
-                    return 0.4;
-            }
+            if (!string.IsNullOrWhiteSpace(mine.Country) && !string.IsNullOrWhiteSpace(other.Country))
+                return string.Equals(mine.Country, other.Country, StringComparison.OrdinalIgnoreCase) ? 1.0 : 0.4;
 
-            // brak danych → neutralnie
             return 0.8;
+        }
+
+        private static int CountBits(int x)
+        {
+            int count = 0;
+            while (x != 0)
+            {
+                x &= (x - 1);
+                count++;
+            }
+            return count;
+        }
+
+        private static double ComputeAvailabilityScore(ProfileEntity mine, ProfileEntity other)
+        {
+            int myMask = (int)mine.Availability;
+            int otherMask = (int)other.Availability;
+
+            if (myMask == 0 || otherMask == 0) return 0.7;
+
+            int overlap = CountBits(myMask & otherMask);
+            int mySlots = CountBits(myMask);
+            if (mySlots == 0) return 0.7;
+
+            double ratio = (double)overlap / mySlots;
+
+            if (ratio >= 0.8) return 1.0;
+            if (ratio >= 0.5) return 0.9;
+            if (ratio >= 0.3) return 0.7;
+            if (ratio > 0.0) return 0.4;
+            return 0.1;
         }
     }
 }

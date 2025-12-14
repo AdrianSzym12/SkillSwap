@@ -1,5 +1,5 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
-using SkillSwap.Application.Interfaces.ExternalInterfaces;
+using SkillSwap.Application.Interfaces;
 using SkillSwap.Persistence.MatchLogic;
 
 namespace SkillSwap.Infrastructure

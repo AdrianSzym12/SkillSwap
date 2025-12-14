@@ -26,5 +26,12 @@ namespace SkillSwap.Persistence.Repositories
                 .Where(us => us.ProfileId == profileId && !us.IsDeleted)
                 .ToListAsync();
         }
+        public async Task<List<UserSkill>> GetByProfileIdsAsync(List<int> profileIds)
+        {
+            return await _context.UserSkills
+                .Where(us => profileIds.Contains(us.ProfileId) && !us.IsDeleted)
+                .ToListAsync();
+        }
+
     }
 }
