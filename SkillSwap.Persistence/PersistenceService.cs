@@ -31,7 +31,6 @@ namespace SkillSwap.Persistence
             services.AddScoped<ISessionRepository, SessionRepository>();
             services.AddScoped<IReviewRepository, ReviewRepository>();
             services.AddScoped<IMatchSwipeRepository, MatchSwipeRepository>();
-            services.AddScoped<IMatchSwipeRepository, MatchSwipeRepository>();
 
 
 
