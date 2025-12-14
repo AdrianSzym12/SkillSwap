@@ -9,7 +9,7 @@ using ProfileEntity = SkillSwap.Domain.Entities.Database.Profile;
 
 namespace SkillSwap.Application.Services.Domain.Services
 {
-    public class MatchSuggestionService : IMatchSuggestion
+    public class MatchSuggestionService : IMatchSuggestionService
     {
         private readonly IProfileRepository _profileRepository;
         private readonly IUserSkillRepository _userSkillRepository;
