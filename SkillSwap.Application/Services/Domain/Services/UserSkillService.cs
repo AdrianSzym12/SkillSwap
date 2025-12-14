@@ -31,7 +31,7 @@ namespace SkillSwap.Application.Services.Domain.Services
         {
             try
             {
-                var entity = await _userSkillRepository.GetAsync(id);
+                var entity = await _userSkillRepository.GetWithDetailsAsync(id);
                 if (entity is null)
                     return new() { IsSuccess = false, Message = "UserSkill not found" };
 
@@ -221,8 +221,9 @@ namespace SkillSwap.Application.Services.Domain.Services
 
                 var created = await _userSkillRepository.AddAsync(entity);
 
-                // 4) zwróć pełny DTO (mapper zrobi profile+skill jeśli masz Include w repo / mapping)
-                var mapped = _mapper.Map<UserSkillDTO>(created);
+                var full = await _userSkillRepository.GetWithDetailsAsync(created.Id);
+
+                var mapped = _mapper.Map<UserSkillDTO>(full);
 
                 return new()
                 {

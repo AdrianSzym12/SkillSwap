@@ -32,6 +32,21 @@ namespace SkillSwap.Persistence.Repositories
                 .Where(us => profileIds.Contains(us.ProfileId) && !us.IsDeleted)
                 .ToListAsync();
         }
+        public async Task<UserSkill?> GetWithDetailsAsync(int id)
+        {
+            return await _context.UserSkills
+                .Include(us => us.Profile)
+                .Include(us => us.Skill)
+                .FirstOrDefaultAsync(us => us.Id == id && !us.IsDeleted);
+        }
 
+        public async Task<List<UserSkill>> GetByProfileIdWithDetailsAsync(int profileId)
+        {
+            return await _context.UserSkills
+                .Include(us => us.Profile)
+                .Include(us => us.Skill)
+                .Where(us => us.ProfileId == profileId && !us.IsDeleted)
+                .ToListAsync();
+        }
     }
 }
