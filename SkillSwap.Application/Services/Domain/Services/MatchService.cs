@@ -77,12 +77,9 @@ namespace SkillSwap.Application.Services.Domain.Services
                 if (profile is null || profile.IsDeleted)
                     return new() { IsSuccess = false, Message = "Profile for current user not found" };
 
-                var matches = await _matchRepository.GetAsync(); 
-                var my = matches
-                    .Where(m => m.Profile1Id == profile.Id || m.Profile2Id == profile.Id)
-                    .ToList();
+                var myMatches = await _matchRepository.GetByProfileIdWithProfilesAsync(profile.Id);
 
-                var dtos = my.Select(m => _mapper.Map<MatchDTO>(m)).ToList();
+                var dtos = myMatches.Select(m => _mapper.Map<MatchDTO>(m)).ToList();
 
                 return new()
                 {
@@ -96,6 +93,7 @@ namespace SkillSwap.Application.Services.Domain.Services
                 return new() { IsSuccess = false, Message = $"Error retrieving user matches: {ex.Message}" };
             }
         }
+
 
         public async Task<Result<MatchDTO>> AddAsync(MatchDTO dto)
         {
