@@ -36,6 +36,7 @@ namespace SkillSwap.API.Controllers
             return int.TryParse(value, out var userId) ? userId : null;
         }
 
+        // Docelowo warto w serwisie sprawdzić, czy user jest uczestnikiem.
         [HttpGet("{id:int}")]
         public async Task<IActionResult> Get(int id, CancellationToken ct)
         {
@@ -46,6 +47,7 @@ namespace SkillSwap.API.Controllers
             return Ok(result.Data);
         }
 
+        [ApiExplorerSettings(IgnoreApi = true)]
         [HttpGet]
         public async Task<IActionResult> GetAll(CancellationToken ct)
         {
@@ -70,6 +72,7 @@ namespace SkillSwap.API.Controllers
             return Ok(result.Data);
         }
 
+        [ApiExplorerSettings(IgnoreApi = true)]
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] MatchDTO request, CancellationToken ct)
         {
@@ -83,6 +86,7 @@ namespace SkillSwap.API.Controllers
             return CreatedAtAction(nameof(Get), new { id = result.Data.Id }, result.Data);
         }
 
+        [ApiExplorerSettings(IgnoreApi = true)]
         [HttpPut("{id:int}")]
         public async Task<IActionResult> Update(int id, [FromBody] MatchDTO request, CancellationToken ct)
         {
@@ -103,6 +107,7 @@ namespace SkillSwap.API.Controllers
             return Ok(result.Data);
         }
 
+        [ApiExplorerSettings(IgnoreApi = true)]
         [HttpDelete("{id:int}")]
         public async Task<IActionResult> Delete(int id, CancellationToken ct)
         {
@@ -128,14 +133,12 @@ namespace SkillSwap.API.Controllers
 
             if (!result.IsSuccess)
             {
-                // exception 422
                 if (!string.IsNullOrWhiteSpace(result.Message) &&
                     result.Message.StartsWith("Profile not ready for matching", StringComparison.OrdinalIgnoreCase))
                 {
                     return UnprocessableEntity(new { message = result.Message });
                 }
 
-                // exception 400 
                 return BadRequest(new { message = result.Message });
             }
 
