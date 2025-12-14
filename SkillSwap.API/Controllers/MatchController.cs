@@ -125,8 +125,19 @@ namespace SkillSwap.API.Controllers
                 return Unauthorized("Invalid token");
 
             var result = await _matchSuggestionService.GetSuggestionsAsync(userId.Value, limit);
+
             if (!result.IsSuccess)
-                return Problem(detail: result.Message);
+            {
+                // exception 422
+                if (!string.IsNullOrWhiteSpace(result.Message) &&
+                    result.Message.StartsWith("Profile not ready for matching", StringComparison.OrdinalIgnoreCase))
+                {
+                    return UnprocessableEntity(new { message = result.Message });
+                }
+
+                // exception 400 
+                return BadRequest(new { message = result.Message });
+            }
 
             return Ok(result.Data);
         }

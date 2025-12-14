@@ -77,12 +77,6 @@ namespace SkillSwap.Application.Services.Domain.Services
                 skillsByProfile.TryGetValue(myProfile.Id, out var mySkills);
                 mySkills ??= new List<UserSkill>();
 
-                var myTeach = mySkills.Where(s => s.Learned).ToList();
-                var myLearn = mySkills.Where(s => !s.Learned).ToList();
-
-                var myTeachIds = myTeach.Select(s => s.SkillId).ToHashSet();
-                var myLearnIds = myLearn.Select(s => s.SkillId).ToHashSet();
-
                 if (mySkills.Count == 0)
                 {
                     return new()
@@ -91,6 +85,30 @@ namespace SkillSwap.Application.Services.Domain.Services
                         Message = "Profile not ready for matching. Add at least 1 skill."
                     };
                 }
+
+                var myTeach = mySkills.Where(s => s.Learned).ToList();
+                var myLearn = mySkills.Where(s => !s.Learned).ToList();
+
+                if (myTeach.Count == 0 && myLearn.Count == 0)
+                {
+                    return new()
+                    {
+                        IsSuccess = false,
+                        Message = "Profile not ready for matching. Add at least 1 skill to teach or learn."
+                    };
+                }
+
+                if (myLearn.Count == 0)
+                {
+                    return new()
+                    {
+                        IsSuccess = false,
+                        Message = "Profile not ready for matching. Add at least 1 skill you want to learn."
+                    };
+                }
+
+                var myTeachIds = myTeach.Select(s => s.SkillId).ToHashSet();
+                var myLearnIds = myLearn.Select(s => s.SkillId).ToHashSet();
 
                 var userIds = candidates.Select(p => p.UserId).Distinct().ToList();
                 userIds.Add(myProfile.UserId);
