@@ -46,7 +46,19 @@ namespace SkillSwap.API.Controllers
                 return Problem(detail: result.Message);
             return Ok(result.Data);
         }
+        [HttpGet("me")]
+        public async Task<IActionResult> GetMe(CancellationToken ct)
+        {
+            var userId = GetCurrentUserId();
+            if (userId is null)
+                return Unauthorized(new { message = "Invalid user token" });
 
+            var result = await _userSkillService.GetMeAsync(userId.Value);
+            if (!result.IsSuccess)
+                return Problem(detail: result.Message);
+
+            return Ok(result.Data);
+        }
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] UserSkillDTO request, CancellationToken ct)
         {
