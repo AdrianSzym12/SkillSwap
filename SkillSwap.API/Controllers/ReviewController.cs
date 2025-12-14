@@ -21,14 +21,12 @@ namespace SkillSwap.API.Controllers
 
         private int? GetCurrentUserId()
         {
-            var idClaim = User.Claims.FirstOrDefault(c =>
-                c.Type == JwtRegisteredClaimNames.Sub ||
-                c.Type == ClaimTypes.NameIdentifier);
+            var value =
+                User.FindFirstValue(JwtRegisteredClaimNames.Sub) ??
+                User.FindFirstValue(ClaimTypes.NameIdentifier) ??
+                User.FindFirstValue("nameid");
 
-            if (idClaim == null || !int.TryParse(idClaim.Value, out var userId))
-                return null;
-
-            return userId;
+            return int.TryParse(value, out var userId) ? userId : null;
         }
 
         [HttpGet("{id:int}")]
@@ -36,7 +34,7 @@ namespace SkillSwap.API.Controllers
         {
             var result = await _reviewService.GetAsync(id);
             if (!result.IsSuccess)
-                return Problem(detail: result.Message);
+                return NotFound(new { message = result.Message });
 
             return Ok(result.Data);
         }
@@ -47,7 +45,7 @@ namespace SkillSwap.API.Controllers
         {
             var result = await _reviewService.GetByProfileAsync(profileId);
             if (!result.IsSuccess)
-                return Problem(detail: result.Message);
+                return BadRequest(new { message = result.Message });
 
             return Ok(result.Data);
         }
@@ -57,26 +55,66 @@ namespace SkillSwap.API.Controllers
         {
             var result = await _reviewService.GetByMatchAsync(matchId);
             if (!result.IsSuccess)
-                return Problem(detail: result.Message);
+                return BadRequest(new { message = result.Message });
+
+            return Ok(result.Data);
+        }
+
+        [HttpGet("me/given")]
+        public async Task<IActionResult> GetMyGiven(CancellationToken ct)
+        {
+            var userId = GetCurrentUserId();
+            if (userId is null)
+                return Unauthorized(new { message = "Invalid token" });
+
+            var result = await _reviewService.GetMyGivenAsync(userId.Value);
+            if (!result.IsSuccess)
+                return BadRequest(new { message = result.Message });
+
+            return Ok(result.Data);
+        }
+
+        [HttpGet("me/received")]
+        public async Task<IActionResult> GetMyReceived(CancellationToken ct)
+        {
+            var userId = GetCurrentUserId();
+            if (userId is null)
+                return Unauthorized(new { message = "Invalid token" });
+
+            var result = await _reviewService.GetMyReceivedAsync(userId.Value);
+            if (!result.IsSuccess)
+                return BadRequest(new { message = result.Message });
 
             return Ok(result.Data);
         }
 
         [HttpPost]
-        public async Task<IActionResult> Create([FromBody] ReviewDTO request, CancellationToken ct)
+        public async Task<IActionResult> Create([FromBody] ReviewCreateDTO request, CancellationToken ct)
         {
             if (!ModelState.IsValid)
                 return ValidationProblem(ModelState);
 
             var userId = GetCurrentUserId();
             if (userId is null)
-                return Unauthorized("Invalid token");
+                return Unauthorized(new { message = "Invalid token" });
 
             var result = await _reviewService.AddAsync(request, userId.Value);
-            if (!result.IsSuccess)
-                return Problem(detail: result.Message);
 
-            return CreatedAtAction(nameof(Get), new { id = result.Data.Id }, result.Data);
+            if (!result.IsSuccess)
+            {
+                if (result.Message == "Match not found")
+                    return NotFound(new { message = result.Message });
+
+                if (result.Message == "You have already reviewed this match")
+                    return Conflict(new { message = result.Message });
+
+                if (result.Message == "You are not a participant of this match")
+                    return StatusCode(403, new { message = result.Message });
+
+                return BadRequest(new { message = result.Message });
+            }
+
+            return StatusCode(201, result.Data);
         }
 
         [HttpDelete("{id:int}")]
@@ -84,11 +122,20 @@ namespace SkillSwap.API.Controllers
         {
             var userId = GetCurrentUserId();
             if (userId is null)
-                return Unauthorized("Invalid token");
+                return Unauthorized(new { message = "Invalid token" });
 
             var result = await _reviewService.DeleteAsync(id, userId.Value);
+
             if (!result.IsSuccess)
-                return Problem(detail: result.Message);
+            {
+                if (result.Message == "Review not found")
+                    return NotFound(new { message = result.Message });
+
+                if (result.Message == "You are not allowed to delete this review")
+                    return StatusCode(403, new { message = result.Message });
+
+                return BadRequest(new { message = result.Message });
+            }
 
             return Ok(new { message = result.Message });
         }

@@ -9,6 +9,12 @@ namespace SkillSwap.Application.Services.Domain.Services
 {
     public class ReviewService : IReviewService
     {
+        private const string ProfileNotFound = "Profile for current user not found";
+        private const string MatchNotFound = "Match not found";
+        private const string NotParticipant = "You are not a participant of this match";
+        private const string AlreadyReviewed = "You have already reviewed this match";
+        private const string ReviewNotFound = "Review not found";
+
         private readonly IReviewRepository _reviewRepository;
         private readonly IMatchRepository _matchRepository;
         private readonly IProfileRepository _profileRepository;
@@ -34,24 +40,19 @@ namespace SkillSwap.Application.Services.Domain.Services
             try
             {
                 var entity = await _reviewRepository.GetAsync(id);
-                if (entity is null)
-                    return new() { IsSuccess = false, Message = "Review not found" };
+                if (entity is null || entity.IsDeleted)
+                    return new() { IsSuccess = false, Message = ReviewNotFound };
 
-                var dto = _mapper.Map<ReviewDTO>(entity);
                 return new()
                 {
                     IsSuccess = true,
-                    Data = dto,
+                    Data = _mapper.Map<ReviewDTO>(entity),
                     Message = "Review retrieved"
                 };
             }
             catch (Exception ex)
             {
-                return new()
-                {
-                    IsSuccess = false,
-                    Message = $"Error retrieving review: {ex.Message}"
-                };
+                return new() { IsSuccess = false, Message = $"Error retrieving review: {ex.Message}" };
             }
         }
 
@@ -60,22 +61,16 @@ namespace SkillSwap.Application.Services.Domain.Services
             try
             {
                 var list = await _reviewRepository.GetByToProfileIdAsync(profileId);
-                var mapped = _mapper.Map<List<ReviewDTO>>(list);
-
                 return new()
                 {
                     IsSuccess = true,
-                    Data = mapped,
+                    Data = _mapper.Map<List<ReviewDTO>>(list),
                     Message = "Reviews retrieved"
                 };
             }
             catch (Exception ex)
             {
-                return new()
-                {
-                    IsSuccess = false,
-                    Message = $"Error retrieving reviews: {ex.Message}"
-                };
+                return new() { IsSuccess = false, Message = $"Error retrieving reviews: {ex.Message}" };
             }
         }
 
@@ -84,96 +79,97 @@ namespace SkillSwap.Application.Services.Domain.Services
             try
             {
                 var list = await _reviewRepository.GetByMatchIdAsync(matchId);
-                var mapped = _mapper.Map<List<ReviewDTO>>(list);
-
                 return new()
                 {
                     IsSuccess = true,
-                    Data = mapped,
+                    Data = _mapper.Map<List<ReviewDTO>>(list),
                     Message = "Reviews retrieved"
                 };
             }
             catch (Exception ex)
             {
-                return new()
-                {
-                    IsSuccess = false,
-                    Message = $"Error retrieving reviews: {ex.Message}"
-                };
+                return new() { IsSuccess = false, Message = $"Error retrieving reviews: {ex.Message}" };
             }
         }
 
-        public async Task<Result<ReviewDTO>> AddAsync(ReviewDTO dto, int currentUserId)
+        public async Task<Result<List<ReviewDTO>>> GetMyGivenAsync(int currentUserId)
         {
             try
             {
-                if (dto.ToProfileId <= 0 || dto.MatchId <= 0)
-                    return new()
-                    {
-                        IsSuccess = false,
-                        Message = "ToProfileId and MatchId are required"
-                    };
-
-                // Profil wystawiającego (z userId)
                 var fromProfile = await _profileRepository.GetByUserIdAsync(currentUserId);
                 if (fromProfile is null || fromProfile.IsDeleted)
-                    return new()
-                    {
-                        IsSuccess = false,
-                        Message = "Profile for current user not found"
-                    };
+                    return new() { IsSuccess = false, Message = ProfileNotFound };
 
-                var toProfile = await _profileRepository.GetAsync(dto.ToProfileId);
-                if (toProfile is null || toProfile.IsDeleted)
-                    return new()
-                    {
-                        IsSuccess = false,
-                        Message = "Target profile not found"
-                    };
+                var list = await _reviewRepository.GetByFromProfileIdAsync(fromProfile.Id);
 
-                // Match musi istnieć
+                return new()
+                {
+                    IsSuccess = true,
+                    Data = _mapper.Map<List<ReviewDTO>>(list),
+                    Message = "Reviews retrieved"
+                };
+            }
+            catch (Exception ex)
+            {
+                return new() { IsSuccess = false, Message = $"Error retrieving reviews: {ex.Message}" };
+            }
+        }
+
+        public async Task<Result<List<ReviewDTO>>> GetMyReceivedAsync(int currentUserId)
+        {
+            try
+            {
+                var myProfile = await _profileRepository.GetByUserIdAsync(currentUserId);
+                if (myProfile is null || myProfile.IsDeleted)
+                    return new() { IsSuccess = false, Message = ProfileNotFound };
+
+                var list = await _reviewRepository.GetByToProfileIdAsync(myProfile.Id);
+
+                return new()
+                {
+                    IsSuccess = true,
+                    Data = _mapper.Map<List<ReviewDTO>>(list),
+                    Message = "Reviews retrieved"
+                };
+            }
+            catch (Exception ex)
+            {
+                return new() { IsSuccess = false, Message = $"Error retrieving reviews: {ex.Message}" };
+            }
+        }
+
+        public async Task<Result<ReviewDTO>> AddAsync(ReviewCreateDTO dto, int currentUserId)
+        {
+            try
+            {
+                var fromProfile = await _profileRepository.GetByUserIdAsync(currentUserId);
+                if (fromProfile is null || fromProfile.IsDeleted)
+                    return new() { IsSuccess = false, Message = ProfileNotFound };
+
                 var match = await _matchRepository.GetAsync(dto.MatchId);
                 if (match is null || match.IsDeleted)
-                    return new()
-                    {
-                        IsSuccess = false,
-                        Message = "Match not found"
-                    };
+                    return new() { IsSuccess = false, Message = MatchNotFound };
 
-                // Czy oba profile biorą udział w tym matchu?
-                bool validPair =
-                    match.Profile1Id == fromProfile.Id && match.Profile2Id == toProfile.Id ||
-                    match.Profile2Id == fromProfile.Id && match.Profile1Id == toProfile.Id;
+                var isParticipant = match.Profile1Id == fromProfile.Id || match.Profile2Id == fromProfile.Id;
+                if (!isParticipant)
+                    return new() { IsSuccess = false, Message = NotParticipant };
 
-                if (!validPair)
-                {
-                    return new()
-                    {
-                        IsSuccess = false,
-                        Message = "Profiles are not participants of this match"
-                    };
-                }
+                var toProfileId = match.Profile1Id == fromProfile.Id ? match.Profile2Id : match.Profile1Id;
 
-                // Czy już wystawiono review z tego profilu dla tego matcha?
                 var existing = await _reviewRepository.GetByFromProfileAndMatchAsync(fromProfile.Id, dto.MatchId);
-                if (existing != null)
-                {
-                    return new()
-                    {
-                        IsSuccess = false,
-                        Message = "You have already reviewed this match"
-                    };
-                }
+                if (existing is not null)
+                    return new() { IsSuccess = false, Message = AlreadyReviewed };
 
-                // Tworzymy encję
                 var entity = new Review
                 {
                     FromProfileId = fromProfile.Id,
-                    ToProfileId = dto.ToProfileId,
+                    ToProfileId = toProfileId,
                     MatchId = dto.MatchId,
+
                     CooperationRating = dto.CooperationRating,
                     WorkQualityRating = dto.WorkQualityRating,
                     KnowledgeGainRating = dto.KnowledgeGainRating,
+
                     Comment = dto.Comment,
                     CreatedAt = DateTime.UtcNow,
                     IsDeleted = false
@@ -181,44 +177,18 @@ namespace SkillSwap.Application.Services.Domain.Services
 
                 entity = await _reviewRepository.AddAsync(entity);
 
-                // Aktualizacja agregatów na User (użytkownik właściciel profilu ToProfile)
-                var toUser = await _userRepository.GetAsync(toProfile.UserId);
-                if (toUser != null && !toUser.IsDeleted)
-                {
-                    int oldCount = toUser.ReviewsCount;
-                    int newCount = oldCount + 1;
-
-                    toUser.AvgCooperationRating =
-                        (toUser.AvgCooperationRating * oldCount + dto.CooperationRating) / newCount;
-
-                    toUser.AvgWorkQualityRating =
-                        (toUser.AvgWorkQualityRating * oldCount + dto.WorkQualityRating) / newCount;
-
-                    toUser.AvgKnowledgeGainRating =
-                        (toUser.AvgKnowledgeGainRating * oldCount + dto.KnowledgeGainRating) / newCount;
-
-                    toUser.ReviewsCount = newCount;
-
-                    await _userRepository.UpdateAsync(toUser);
-                }
-
-                var mapped = _mapper.Map<ReviewDTO>(entity);
-                mapped.FromProfileId = fromProfile.Id;
+                await RecalculateUserAggregatesAsync(toProfileId);
 
                 return new()
                 {
                     IsSuccess = true,
-                    Data = mapped,
+                    Data = _mapper.Map<ReviewDTO>(entity),
                     Message = "Review created successfully"
                 };
             }
             catch (Exception ex)
             {
-                return new()
-                {
-                    IsSuccess = false,
-                    Message = $"Error creating review: {ex.Message}"
-                };
+                return new() { IsSuccess = false, Message = $"Error creating review: {ex.Message}" };
             }
         }
 
@@ -227,29 +197,21 @@ namespace SkillSwap.Application.Services.Domain.Services
             try
             {
                 var entity = await _reviewRepository.GetAsync(id);
-                if (entity is null)
-                    return new()
-                    {
-                        IsSuccess = false,
-                        Message = "Review not found"
-                    };
+                if (entity is null || entity.IsDeleted)
+                    return new() { IsSuccess = false, Message = ReviewNotFound };
 
                 var fromProfile = await _profileRepository.GetAsync(entity.FromProfileId);
-                if (fromProfile is null)
-                    return new()
-                    {
-                        IsSuccess = false,
-                        Message = "Profile not found"
-                    };
+                if (fromProfile is null || fromProfile.IsDeleted)
+                    return new() { IsSuccess = false, Message = "Profile not found" };
 
                 if (fromProfile.UserId != currentUserId)
-                    return new()
-                    {
-                        IsSuccess = false,
-                        Message = "You are not allowed to delete this review"
-                    };
+                    return new() { IsSuccess = false, Message = "You are not allowed to delete this review" };
 
-                await _reviewRepository.DeleteAsync(entity); // soft delete (IsDeleted = true)
+                var toProfileId = entity.ToProfileId;
+
+                await _reviewRepository.DeleteAsync(entity); 
+
+                await RecalculateUserAggregatesAsync(toProfileId);
 
                 return new()
                 {
@@ -260,12 +222,38 @@ namespace SkillSwap.Application.Services.Domain.Services
             }
             catch (Exception ex)
             {
-                return new()
-                {
-                    IsSuccess = false,
-                    Message = $"Error deleting review: {ex.Message}"
-                };
+                return new() { IsSuccess = false, Message = $"Error deleting review: {ex.Message}" };
             }
+        }
+
+        private async Task RecalculateUserAggregatesAsync(int toProfileId)
+        {
+            var toProfile = await _profileRepository.GetAsync(toProfileId);
+            if (toProfile is null || toProfile.IsDeleted)
+                return;
+
+            var toUser = await _userRepository.GetAsync(toProfile.UserId);
+            if (toUser is null || toUser.IsDeleted)
+                return;
+
+            var reviews = await _reviewRepository.GetByToProfileIdAsync(toProfileId); 
+
+            toUser.ReviewsCount = reviews.Count;
+
+            if (reviews.Count == 0)
+            {
+                toUser.AvgCooperationRating = 0;
+                toUser.AvgWorkQualityRating = 0;
+                toUser.AvgKnowledgeGainRating = 0;
+            }
+            else
+            {
+                toUser.AvgCooperationRating = reviews.Average(r => r.CooperationRating);
+                toUser.AvgWorkQualityRating = reviews.Average(r => r.WorkQualityRating);
+                toUser.AvgKnowledgeGainRating = reviews.Average(r => r.KnowledgeGainRating);
+            }
+
+            await _userRepository.UpdateAsync(toUser);
         }
     }
 }
