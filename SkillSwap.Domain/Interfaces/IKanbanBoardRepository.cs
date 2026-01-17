@@ -4,6 +4,6 @@ namespace SkillSwap.Domain.Interfaces
 {
     public interface IKanbanBoardRepository : IBaseRepository<KanbanBoard>
     {
-        Task<List<KanbanBoard>> GetByMatchIdAsync(int matchId);
+        Task<List<KanbanBoard>> GetByMatchIdAsync(int matchId, CancellationToken ct);
     }
 }
