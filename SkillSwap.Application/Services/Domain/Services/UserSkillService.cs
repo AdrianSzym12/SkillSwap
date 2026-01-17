@@ -31,7 +31,7 @@ namespace SkillSwap.Application.Services.Domain.Services
         {
             try
             {
-                var entity = await _userSkillRepository.GetWithDetailsAsync(id);
+                var entity = await _userSkillRepository.GetAsync(id);
                 if (entity is null)
                     return new() { IsSuccess = false, Message = "UserSkill not found" };
 
@@ -48,7 +48,7 @@ namespace SkillSwap.Application.Services.Domain.Services
         {
             try
             {
-                var entities = await _userSkillRepository.GetAsync(); 
+                var entities = await _userSkillRepository.GetAsync();
                 var dtos = _mapper.Map<List<UserSkillDTO>>(entities);
 
                 return new()
@@ -221,9 +221,8 @@ namespace SkillSwap.Application.Services.Domain.Services
 
                 var created = await _userSkillRepository.AddAsync(entity);
 
-                var full = await _userSkillRepository.GetWithDetailsAsync(created.Id);
-
-                var mapped = _mapper.Map<UserSkillDTO>(full);
+                // 4) zwróć pełny DTO (mapper zrobi profile+skill jeśli masz Include w repo / mapping)
+                var mapped = _mapper.Map<UserSkillDTO>(created);
 
                 return new()
                 {
@@ -266,30 +265,6 @@ namespace SkillSwap.Application.Services.Domain.Services
             catch (Exception ex)
             {
                 return new() { IsSuccess = false, Message = $"Error updating: {ex.Message}" };
-            }
-        }
-        public async Task<Result<List<UserSkillDTO>>> GetMeAsync(int currentUserId)
-        {
-            try
-            {
-                var profile = await _profileRepository.GetByUserIdAsync(currentUserId);
-                if (profile is null || profile.IsDeleted)
-                    return new() { IsSuccess = false, Message = "Profile not found" };
-
-                var entities = await _userSkillRepository.GetByProfileIdWithDetailsAsync(profile.Id);
-
-                var dtos = _mapper.Map<List<UserSkillDTO>>(entities);
-
-                return new()
-                {
-                    IsSuccess = true,
-                    Data = dtos,
-                    Message = "Retrieved"
-                };
-            }
-            catch (Exception ex)
-            {
-                return new() { IsSuccess = false, Message = $"Error: {ex.Message}" };
             }
         }
 

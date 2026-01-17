@@ -1,5 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
+﻿using Microsoft.IdentityModel.Tokens;
 using SkillSwap.Application.DTO;
 using SkillSwap.Application.Interfaces;
 using SkillSwap.Domain.Entities.Commons;
@@ -7,8 +6,6 @@ using SkillSwap.Domain.Entities.Config;
 using SkillSwap.Domain.Entities.Database;
 using SkillSwap.Domain.Interfaces;
 using SkillSwap.Domain.Services;
-using SkillSwap.Persistence;
-using SkillSwap.Persistence.Repositories;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
@@ -20,33 +17,33 @@ namespace SkillSwap.Application.Services.Domain.Services
         private readonly IUserRepository _userRepository;
         private readonly ISessionRepository _sessionRepository;
         private readonly IProfileRepository _profileRepository;
-        private readonly PersistenceContext _context;
         private readonly Configuration _config;
 
         public SessionService(
             IUserRepository userRepository,
             IProfileRepository profileRepository,
             ISessionRepository sessionRepository,
-            PersistenceContext context,
             Configuration config)
         {
             _userRepository = userRepository;
             _sessionRepository = sessionRepository;
             _profileRepository = profileRepository;
             _config = config;
-            _context = context;
         }
 
         public async Task<Result<LoginResultDTO>> LoginAsync(LoginDTO dto)
         {
             try
             {
-                var user = await _userRepository.GetByEmailAsync(dto.Email);
-                if (user is null)
+                var email = dto.Email.Trim().ToLowerInvariant();
+                var user = await _userRepository.GetByEmailAsync(email);
+
+                if (user is null || user.IsDeleted)
                 {
                     return new()
                     {
                         IsSuccess = false,
+                        StatusCode = 401,
                         Message = "Invalid email or password"
                     };
                 }
@@ -56,35 +53,13 @@ namespace SkillSwap.Application.Services.Domain.Services
                     return new()
                     {
                         IsSuccess = false,
+                        StatusCode = 401,
                         Message = "Invalid email or password"
                     };
                 }
 
-                var secretKey = _config.Api.SecretKey;
-                var keyBytes = Encoding.UTF8.GetBytes(secretKey);
-                var securityKey = new SymmetricSecurityKey(keyBytes);
-
-                var creds = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
                 var expires = DateTime.UtcNow.AddHours(1);
-
-                var claims = new List<Claim>
-                {
-                    new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-                    new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()), 
-                    new Claim(JwtRegisteredClaimNames.Email, user.Email),
-                    new Claim("name", $"{user.FirstName} {user.LastName}")
-                };
-
-                var tokenDescriptor = new SecurityTokenDescriptor
-                {
-                    Subject = new ClaimsIdentity(claims),
-                    Expires = expires,
-                    SigningCredentials = creds
-                };
-
-                var tokenHandler = new JwtSecurityTokenHandler();
-                var token = tokenHandler.CreateToken(tokenDescriptor);
-                var tokenString = tokenHandler.WriteToken(token);
+                var tokenString = GenerateJwtToken(user, expires);
 
                 var session = new Session
                 {
@@ -97,34 +72,25 @@ namespace SkillSwap.Application.Services.Domain.Services
 
                 await _sessionRepository.AddAsync(session);
 
-                var loginResult = new LoginResultDTO
-                {
-                    Token = tokenString,
-                    ExpiresAt = expires,
-                    UserId = user.Id
-                };
-                if (user.IsDeleted)
-                {
-                    return new()
-                    {
-                        IsSuccess = false,
-                        Message = "Account is deleted"
-                    };
-                }
-
                 return new()
                 {
                     IsSuccess = true,
-                    Data = loginResult,
+                    Data = new LoginResultDTO
+                    {
+                        Token = tokenString,
+                        ExpiresAt = expires,
+                        UserId = user.Id
+                    },
                     Message = "Login successful"
                 };
             }
-            catch (Exception ex)
+            catch
             {
                 return new()
                 {
                     IsSuccess = false,
-                    Message = $"Error during login: {ex.Message}"
+                    StatusCode = 500,
+                    Message = "Error during login"
                 };
             }
         }
@@ -139,6 +105,7 @@ namespace SkillSwap.Application.Services.Domain.Services
                     return new()
                     {
                         IsSuccess = false,
+                        StatusCode = 404,
                         Message = "Session not found"
                     };
                 }
@@ -153,16 +120,17 @@ namespace SkillSwap.Application.Services.Domain.Services
                     Message = "Logged out"
                 };
             }
-            catch (Exception ex)
+            catch
             {
                 return new()
                 {
                     IsSuccess = false,
-                    Message = $"Error during logout: {ex.Message}"
+                    StatusCode = 500,
+                    Message = "Error during logout"
                 };
             }
-
         }
+
         public async Task<Result<CurrentSessionDTO>> GetCurrentAsync(string token)
         {
             try
@@ -173,6 +141,7 @@ namespace SkillSwap.Application.Services.Domain.Services
                     return new()
                     {
                         IsSuccess = false,
+                        StatusCode = 404,
                         Message = "Session not found"
                     };
                 }
@@ -182,39 +151,17 @@ namespace SkillSwap.Application.Services.Domain.Services
                     return new()
                     {
                         IsSuccess = false,
+                        StatusCode = 401,
                         Message = "Session expired"
                     };
                 }
 
-                var secretKey = _config.Api.SecretKey;
-                var keyBytes = Encoding.UTF8.GetBytes(secretKey);
-
-                var tokenHandler = new JwtSecurityTokenHandler();
-                try
-                {
-                    tokenHandler.ValidateToken(token, new TokenValidationParameters
-                    {
-                        ValidateIssuerSigningKey = true,
-                        IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
-                        ValidateIssuer = false,
-                        ValidateAudience = false,
-                        ClockSkew = TimeSpan.Zero
-                    }, out SecurityToken validatedToken);
-
-                }
-                catch (SecurityTokenExpiredException)
+                if (!ValidateJwtToken(token))
                 {
                     return new()
                     {
                         IsSuccess = false,
-                        Message = "Token expired"
-                    };
-                }
-                catch (Exception)
-                {
-                    return new()
-                    {
-                        IsSuccess = false,
+                        StatusCode = 401,
                         Message = "Invalid token"
                     };
                 }
@@ -225,6 +172,7 @@ namespace SkillSwap.Application.Services.Domain.Services
                     return new()
                     {
                         IsSuccess = false,
+                        StatusCode = 404,
                         Message = "User not found"
                     };
                 }
@@ -248,26 +196,19 @@ namespace SkillSwap.Application.Services.Domain.Services
                     Message = "Current session"
                 };
             }
-            catch (Exception ex)
+            catch
             {
                 return new()
                 {
                     IsSuccess = false,
-                    Message = $"Error getting current session: {ex.Message}"
+                    StatusCode = 500,
+                    Message = "Error getting current session"
                 };
             }
         }
 
-
         public async Task<Result<RegisterResponseDTO>> RegisterAsync(RegisterDTO dto)
         {
-            // tracking etapów do message
-            var userCreated = false;
-            var profileCreated = false;
-            var sessionCreated = false;
-
-            await using var tx = await _context.Database.BeginTransactionAsync();
-
             try
             {
                 var email = dto.Email.Trim().ToLowerInvariant();
@@ -278,7 +219,8 @@ namespace SkillSwap.Application.Services.Domain.Services
                     return new()
                     {
                         IsSuccess = false,
-                        Message = "Registration failed: email is already taken."
+                        StatusCode = 409,
+                        Message = "Email is already taken."
                     };
                 }
 
@@ -296,7 +238,7 @@ namespace SkillSwap.Application.Services.Domain.Services
                 };
 
                 await _userRepository.AddAsync(user);
-                userCreated = true;
+
                 var defaultName = BuildDefaultUserName(user);
                 var uniqueUserName = await GenerateUniqueUserNameAsync(defaultName);
 
@@ -304,14 +246,10 @@ namespace SkillSwap.Application.Services.Domain.Services
                 {
                     User = user,
                     UserName = uniqueUserName,
-
-                    // jeśli DB wymaga NOT NULL:
                     Avatar = Array.Empty<byte>(),
-
                     Bio = "null",
                     Country = "null",
                     Language = "null",
-
                     PreferredMeetingType = SkillSwap.Domain.Enums.MeetingType.None,
                     PreferredLearningStyle = SkillSwap.Domain.Enums.LearningStyle.None,
                     Availability = SkillSwap.Domain.Enums.AvailabilitySlot.None,
@@ -323,10 +261,9 @@ namespace SkillSwap.Application.Services.Domain.Services
                 profile.IsOnboardingComplete = isComplete;
 
                 await _profileRepository.AddAsync(profile);
-                profileCreated = true;
 
                 var expires = DateTime.UtcNow.AddHours(1);
-                var tokenString = GenerateJwtToken(user, profile.Id, expires);
+                var tokenString = GenerateJwtToken(user, expires);
 
                 var session = new Session
                 {
@@ -338,70 +275,61 @@ namespace SkillSwap.Application.Services.Domain.Services
                 };
 
                 await _sessionRepository.AddAsync(session);
-                sessionCreated = true;
-
-                // jeden zapis na końcu (jeśli Twoje repo AddAsync nie robi SaveChanges)
-                await _context.SaveChangesAsync();
-
-                await tx.CommitAsync();
-
-                var data = new RegisterResponseDTO
-                {
-                    UserId = user.Id,
-                    ProfileId = profile.Id,
-                    AccessToken = tokenString,
-                    RequiresOnboarding = !isComplete,
-                    ProfileCompletion = completion,
-                    MissingFields = missingFields
-                };
 
                 return new()
                 {
                     IsSuccess = true,
-                    Data = data,
+                    Data = new RegisterResponseDTO
+                    {
+                        UserId = user.Id,
+                        ProfileId = profile.Id,
+                        AccessToken = tokenString,
+                        RequiresOnboarding = !isComplete,
+                        ProfileCompletion = completion,
+                        MissingFields = missingFields
+                    },
                     Message = !isComplete
                         ? "Account created. Profile needs onboarding."
                         : "Account created."
                 };
             }
-            catch (DbUpdateException ex)
+            catch
             {
-                await tx.RollbackAsync();
-
-                var inner = ex.InnerException?.Message ?? ex.Message;
-
-                // komunikat etapowy (po fixie idealnie zawsze "nothing was created" bo rollback)
-                var stageMsg = GetRegistrationStageMessage(userCreated, profileCreated, sessionCreated);
-
                 return new()
                 {
                     IsSuccess = false,
-                    Message = $"Registration failed: {stageMsg} Database error: {inner}"
-                };
-            }
-            catch (Exception ex)
-            {
-                await tx.RollbackAsync();
-
-                var stageMsg = GetRegistrationStageMessage(userCreated, profileCreated, sessionCreated);
-
-                return new()
-                {
-                    IsSuccess = false,
-                    Message = $"Registration failed: {stageMsg} Error: {ex.Message}"
+                    StatusCode = 500,
+                    Message = "Registration failed"
                 };
             }
         }
 
-        private static string GetRegistrationStageMessage(bool userCreated, bool profileCreated, bool sessionCreated)
+        private bool ValidateJwtToken(string token)
         {
-            // przy rollback realnie nic nie powinno zostać, ale message jest informacyjny
-            if (!userCreated) return "user was not created.";
-            if (userCreated && !profileCreated) return "user was created but profile was not created.";
-            if (userCreated && profileCreated && !sessionCreated) return "user and profile were created but session was not created.";
-            return "unknown stage.";
+            var secretKey = _config.Api.SecretKey;
+            var keyBytes = Encoding.UTF8.GetBytes(secretKey);
+
+            var tokenHandler = new JwtSecurityTokenHandler();
+            try
+            {
+                tokenHandler.ValidateToken(token, new TokenValidationParameters
+                {
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
+                    ValidateIssuer = false,
+                    ValidateAudience = false,
+                    ClockSkew = TimeSpan.Zero
+                }, out _);
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
-        private string GenerateJwtToken(User user, int profileId, DateTime expires)
+
+        private string GenerateJwtToken(User user, DateTime expires)
         {
             var secretKey = _config.Api.SecretKey;
             var keyBytes = Encoding.UTF8.GetBytes(secretKey);
@@ -412,12 +340,10 @@ namespace SkillSwap.Application.Services.Domain.Services
             var claims = new List<Claim>
             {
                 new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
                 new Claim(JwtRegisteredClaimNames.Email, user.Email),
                 new Claim("name", $"{user.FirstName} {user.LastName}")
             };
-
-            if (profileId > 0)
-                claims.Add(new Claim("profileId", profileId.ToString()));
 
             var tokenDescriptor = new SecurityTokenDescriptor
             {
@@ -433,19 +359,17 @@ namespace SkillSwap.Application.Services.Domain.Services
 
         private static string BuildDefaultUserName(User user)
         {
-            // Prosty i przewidywalny default (możesz później zrobić unikalność)
             var candidate = $"{user.FirstName}.{user.LastName}".Replace(" ", "");
             return string.IsNullOrWhiteSpace(candidate) ? user.Email.Split('@')[0] : candidate;
         }
+
         private async Task<string> GenerateUniqueUserNameAsync(string baseName)
         {
             baseName = NormalizeUserName(baseName);
 
-            // 1) bez suffixu
             if (!await _profileRepository.ExistsByUserNameAsync(baseName))
                 return baseName;
 
-            // 2) dopinanie liczby
             for (int i = 1; i <= 9999; i++)
             {
                 var candidate = $"{baseName}{i}";
@@ -453,27 +377,21 @@ namespace SkillSwap.Application.Services.Domain.Services
                     return candidate;
             }
 
-            // 3) awaryjnie timestamp
             return $"{baseName}{DateTime.UtcNow:yyyyMMddHHmmss}";
         }
 
         private static string NormalizeUserName(string userName)
         {
             userName = userName.Trim();
-
-            // zamień spacje na nic / kropkę — jak wolisz
             userName = userName.Replace(" ", "");
 
-            // limit długości (masz MaxLength(50) w DTO)
             if (userName.Length > 50)
                 userName = userName.Substring(0, 50);
 
-            // fallback
             if (string.IsNullOrWhiteSpace(userName))
                 userName = "user";
 
             return userName;
         }
-
     }
 }

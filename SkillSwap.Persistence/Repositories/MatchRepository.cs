@@ -13,7 +13,7 @@ namespace SkillSwap.Persistence.Repositories
             _context = context;
         }
 
-        public async Task<Match?> GetBetweenProfilesAsync(int profile1Id, int profile2Id)
+        public async Task<Match?> GetBetweenProfilesAsync(int profile1Id, int profile2Id, CancellationToken ct = default)
         {
             return await _context.Matches
                 .FirstOrDefaultAsync(m =>
@@ -21,24 +21,14 @@ namespace SkillSwap.Persistence.Repositories
                     (
                         (m.Profile1Id == profile1Id && m.Profile2Id == profile2Id) ||
                         (m.Profile1Id == profile2Id && m.Profile2Id == profile1Id)
-                    ));
+                    ), ct);
         }
-        public async Task<HashSet<int>> GetPartnerProfileIdsAsync(int myProfileId)
-        {
-            var partners = await _context.Matches
-                .Where(m => !m.IsDeleted && (m.Profile1Id == myProfileId || m.Profile2Id == myProfileId))
-                .Select(m => m.Profile1Id == myProfileId ? m.Profile2Id : m.Profile1Id)
-                .ToListAsync();
 
-            return partners.ToHashSet();
-        }
-        public async Task<List<Match>> GetByProfileIdWithProfilesAsync(int profileId)
+        public async Task<List<Match>> GetByProfileIdAsync(int profileId, CancellationToken ct = default)
         {
             return await _context.Matches
-                .Include(m => m.Profile1)
-                .Include(m => m.Profile2)
                 .Where(m => !m.IsDeleted && (m.Profile1Id == profileId || m.Profile2Id == profileId))
-                .ToListAsync();
+                .ToListAsync(ct);
         }
     }
 }

@@ -1,17 +1,19 @@
 ﻿using SkillSwap.Application.DTO;
 using SkillSwap.Domain.Entities.Commons;
 
-public interface IMatchService
+namespace SkillSwap.Application.Interfaces
 {
-    Task<Result<MatchDTO>> GetAsync(int id);
-    Task<Result<List<MatchDTO>>> GetAsync();
-    Task<Result<MatchDTO>> AddAsync(MatchDTO dto);
-    Task<Result<MatchDTO>> UpdateAsync(MatchDTO dto, int currentUserId);
-    Task<Result<string>> DeleteAsync(int id, int currentUserId);
-    Task<Result<List<MatchDTO>>> GetMyAsync(int currentUserId);
+    public interface IMatchService
+    {
+        Task<Result<MatchDTO>> GetAsync(int id, CancellationToken ct = default);
+        Task<Result<List<MatchDTO>>> GetAsync(CancellationToken ct = default);
+        Task<Result<MatchDTO>> AddAsync(MatchDTO dto, CancellationToken ct = default);
+        Task<Result<MatchDTO>> UpdateAsync(MatchDTO dto, int currentUserId, CancellationToken ct = default);
+        Task<Result<string>> DeleteAsync(int id, int currentUserId, CancellationToken ct = default);
+        Task<Result<List<MatchDTO>>> GetMyAsync(int currentUserId, CancellationToken ct = default);
 
-
-
-    Task<Result<SwipeResultDTO>> LikeAsync(int targetProfileId, int currentUserId);
-    Task<Result<string>> DislikeAsync(int targetProfileId, int currentUserId);
+        // Swipe API (dating-app style)
+        Task<Result<SwipeResultDTO>> LikeAsync(int targetProfileId, int currentUserId, CancellationToken ct = default);
+        Task<Result<string>> DislikeAsync(int targetProfileId, int currentUserId, CancellationToken ct = default);
+    }
 }

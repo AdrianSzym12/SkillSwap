@@ -14,23 +14,31 @@ namespace SkillSwap.Persistence.Repositories
             _context = context;
         }
 
-        public async Task<MatchSwipe?> GetByPairAsync(int fromProfileId, int toProfileId)
+        public async Task<MatchSwipe?> GetByPairAsync(int fromProfileId, int toProfileId, CancellationToken ct = default)
         {
             return await _context.MatchSwipes
                 .FirstOrDefaultAsync(s =>
                     s.FromProfileId == fromProfileId &&
                     s.ToProfileId == toProfileId &&
-                    !s.IsDeleted);
+                    !s.IsDeleted, ct);
         }
 
-        public async Task<MatchSwipe?> GetLikeAsync(int fromProfileId, int toProfileId)
+        public async Task<MatchSwipe?> GetLikeAsync(int fromProfileId, int toProfileId, CancellationToken ct = default)
         {
             return await _context.MatchSwipes
                 .FirstOrDefaultAsync(s =>
                     s.FromProfileId == fromProfileId &&
                     s.ToProfileId == toProfileId &&
                     s.Direction == SwipeDirection.Like &&
-                    !s.IsDeleted);
+                    !s.IsDeleted, ct);
+        }
+
+        public async Task<List<int>> GetSwipedToProfileIdsAsync(int fromProfileId, CancellationToken ct = default)
+        {
+            return await _context.MatchSwipes
+                .Where(s => s.FromProfileId == fromProfileId && !s.IsDeleted)
+                .Select(s => s.ToProfileId)
+                .ToListAsync(ct);
         }
     }
 }

@@ -4,10 +4,8 @@ namespace SkillSwap.Domain.Interfaces
 {
     public interface IUserSkillRepository : IBaseRepository<UserSkill>
     {
-        Task<List<UserSkill>> GetByProfileIdAsync(int profileId);
-        Task<UserSkill?> GetByProfileAndSkillAsync(int profileId, int skillId);
-        Task<List<UserSkill>> GetByProfileIdsAsync(List<int> profileIds);
-        Task<UserSkill?> GetWithDetailsAsync(int id);
-        Task<List<UserSkill>> GetByProfileIdWithDetailsAsync(int profileId);
+        Task<List<UserSkill>> GetByProfileIdAsync(int profileId, CancellationToken ct = default);
+        Task<UserSkill?> GetByProfileAndSkillAsync(int profileId, int skillId, CancellationToken ct = default);
+        Task<List<UserSkill>> GetByProfileIdsAsync(IReadOnlyCollection<int> profileIds, CancellationToken ct = default);
     }
 }

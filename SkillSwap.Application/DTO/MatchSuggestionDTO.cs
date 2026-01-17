@@ -16,5 +16,15 @@
         public double OpinionFactor { get; set; }
         public double ProfileFactor { get; set; }
         public double NewUserBoost { get; set; }
+
+        public int TeachMeCount { get; set; }
+        public int TeachThemCount { get; set; }
+
+        public List<int> SkillsTheyCanTeachMe { get; set; } = new();
+        public List<int> SkillsICanTeachThem { get; set; } = new();
+
+        // Optional enrichment for clients that want to show names immediately.
+        public List<SkillPreviewDTO> SkillsTheyCanTeachMeDetails { get; set; } = new();
+        public List<SkillPreviewDTO> SkillsICanTeachThemDetails { get; set; } = new();
     }
 }

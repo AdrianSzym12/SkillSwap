@@ -1,9 +1,14 @@
-﻿using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SkillSwap.API.Helpers;
 using SkillSwap.Application.DTO;
 using SkillSwap.Application.Interfaces;
+using SkillSwap.Application.Interfaces.ExternalInterfaces;
+using SkillSwap.Domain.Entities.Commons;
+using SkillSwap.Infrastructure.MatchLogic;
+using System.ComponentModel.DataAnnotations;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 
 namespace SkillSwap.API.Controllers
 {
@@ -13,47 +18,43 @@ namespace SkillSwap.API.Controllers
     public class MatchController : ControllerBase
     {
         private readonly IMatchService _matchService;
-        private readonly IMatchSuggestionService _matchSuggestionService;
-        private readonly IMatchSwipeService _matchSwipeService;
+        private readonly IMatchSuggestion _matchSuggestionService;
 
-        public MatchController(
-            IMatchService matchService,
-            IMatchSuggestionService matchSuggestionService,
-            IMatchSwipeService matchSwipeService)
+        public MatchController(IMatchService matchService, IMatchSuggestion matchSuggestionService)
         {
             _matchService = matchService;
             _matchSuggestionService = matchSuggestionService;
-            _matchSwipeService = matchSwipeService;
         }
 
+        // ===== Pomocnicze: userId z JWT =====
         private int? GetCurrentUserId()
         {
-            var value =
-                User.FindFirstValue(JwtRegisteredClaimNames.Sub) ??
-                User.FindFirstValue(ClaimTypes.NameIdentifier) ??
-                User.FindFirstValue("nameid");
+            var idClaim = User.Claims.FirstOrDefault(c =>
+                c.Type == JwtRegisteredClaimNames.Sub ||
+                c.Type == ClaimTypes.NameIdentifier);
 
-            return int.TryParse(value, out var userId) ? userId : null;
+            if (idClaim == null || !int.TryParse(idClaim.Value, out var userId))
+                return null;
+
+            return userId;
         }
 
-        // Docelowo warto w serwisie sprawdzić, czy user jest uczestnikiem.
-        [HttpGet("{id:int}")]
+        [HttpGet("{id:int:min(1)}")]
         public async Task<IActionResult> Get(int id, CancellationToken ct)
         {
-            var result = await _matchService.GetAsync(id);
+            var result = await _matchService.GetAsync(id, ct);
             if (!result.IsSuccess)
-                return Problem(detail: result.Message);
+                return this.ProblemFromResult(result);
 
             return Ok(result.Data);
         }
 
-        [ApiExplorerSettings(IgnoreApi = true)]
         [HttpGet]
         public async Task<IActionResult> GetAll(CancellationToken ct)
         {
-            var result = await _matchService.GetAsync();
+            var result = await _matchService.GetAsync(ct);
             if (!result.IsSuccess)
-                return Problem(detail: result.Message);
+                return this.ProblemFromResult(result);
 
             return Ok(result.Data);
         }
@@ -65,29 +66,27 @@ namespace SkillSwap.API.Controllers
             if (userId is null)
                 return Unauthorized("Invalid token");
 
-            var result = await _matchService.GetMyAsync(userId.Value);
+            var result = await _matchService.GetMyAsync(userId.Value, ct);
             if (!result.IsSuccess)
-                return Problem(detail: result.Message);
+                return this.ProblemFromResult(result);
 
             return Ok(result.Data);
         }
 
-        [ApiExplorerSettings(IgnoreApi = true)]
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] MatchDTO request, CancellationToken ct)
         {
             if (!ModelState.IsValid)
                 return ValidationProblem(ModelState);
 
-            var result = await _matchService.AddAsync(request);
+            var result = await _matchService.AddAsync(request, ct);
             if (!result.IsSuccess)
-                return Problem(detail: result.Message);
+                return this.ProblemFromResult(result);
 
             return CreatedAtAction(nameof(Get), new { id = result.Data.Id }, result.Data);
         }
 
-        [ApiExplorerSettings(IgnoreApi = true)]
-        [HttpPut("{id:int}")]
+        [HttpPut("{id:int:min(1)}")]
         public async Task<IActionResult> Update(int id, [FromBody] MatchDTO request, CancellationToken ct)
         {
             if (id != request.Id)
@@ -100,77 +99,70 @@ namespace SkillSwap.API.Controllers
             if (userId is null)
                 return Unauthorized("Invalid token");
 
-            var result = await _matchService.UpdateAsync(request, userId.Value);
+            var result = await _matchService.UpdateAsync(request, userId.Value, ct);
             if (!result.IsSuccess)
-                return Problem(detail: result.Message);
+                return this.ProblemFromResult(result);
 
             return Ok(result.Data);
         }
 
-        [ApiExplorerSettings(IgnoreApi = true)]
-        [HttpDelete("{id:int}")]
+        [HttpDelete("{id:int:min(1)}")]
         public async Task<IActionResult> Delete(int id, CancellationToken ct)
         {
             var userId = GetCurrentUserId();
             if (userId is null)
                 return Unauthorized("Invalid token");
 
-            var result = await _matchService.DeleteAsync(id, userId.Value);
+            var result = await _matchService.DeleteAsync(id, userId.Value, ct);
             if (!result.IsSuccess)
-                return Problem(detail: result.Message);
+                return this.ProblemFromResult(result);
 
             return Ok(new { message = result.Message });
         }
 
+        // ===== Sugestie matchy (algorytm dopasowania) =====
         [HttpGet("suggestions")]
-        public async Task<IActionResult> GetSuggestions([FromQuery] int limit = 20, CancellationToken ct = default)
+        public async Task<IActionResult> GetSuggestions([FromQuery, Range(1, 50)] int limit = 20, CancellationToken ct = default)
         {
             var userId = GetCurrentUserId();
             if (userId is null)
                 return Unauthorized("Invalid token");
 
-            var result = await _matchSuggestionService.GetSuggestionsAsync(userId.Value, limit);
-
+            var result = await _matchSuggestionService.GetSuggestionsAsync(userId.Value, limit, ct);
             if (!result.IsSuccess)
-            {
-                if (!string.IsNullOrWhiteSpace(result.Message) &&
-                    result.Message.StartsWith("Profile not ready for matching", StringComparison.OrdinalIgnoreCase))
-                {
-                    return UnprocessableEntity(new { message = result.Message });
-                }
-
-                return BadRequest(new { message = result.Message });
-            }
+                return this.ProblemFromResult(result);
 
             return Ok(result.Data);
         }
 
-        [HttpPost("{profileId:int}/like")]
+        // ===== Swipe LIKE =====
+        [HttpPost("{profileId:int:min(1)}/like")]
         public async Task<IActionResult> Like(int profileId, CancellationToken ct)
         {
             var userId = GetCurrentUserId();
             if (userId is null)
                 return Unauthorized("Invalid token");
 
-            var result = await _matchSwipeService.LikeAsync(userId.Value, profileId);
+            var result = await _matchService.LikeAsync(profileId, userId.Value, ct);
             if (!result.IsSuccess)
-                return Problem(detail: result.Message);
+                return this.ProblemFromResult(result);
 
-            return Ok(new { message = result.Message, data = result.Data });
+            return Ok(result.Data);
         }
 
-        [HttpPost("{profileId:int}/dislike")]
+        // ===== Swipe DISLIKE =====
+        [HttpPost("{profileId:int:min(1)}/dislike")]
         public async Task<IActionResult> Dislike(int profileId, CancellationToken ct)
         {
             var userId = GetCurrentUserId();
             if (userId is null)
                 return Unauthorized("Invalid token");
 
-            var result = await _matchSwipeService.DislikeAsync(userId.Value, profileId);
+            var result = await _matchService.DislikeAsync(profileId, userId.Value, ct);
             if (!result.IsSuccess)
-                return Problem(detail: result.Message);
+                return this.ProblemFromResult(result);
 
-            return Ok(new { message = result.Message, data = result.Data });
+            return Ok(result.Data);
         }
     }
 }

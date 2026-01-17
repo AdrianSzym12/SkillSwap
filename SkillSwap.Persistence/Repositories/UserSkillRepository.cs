@@ -13,40 +13,27 @@ namespace SkillSwap.Persistence.Repositories
             _context = context;
         }
 
-        public async Task<UserSkill?> GetByProfileAndSkillAsync(int profileId, int skillId)
+        public async Task<UserSkill?> GetByProfileAndSkillAsync(int profileId, int skillId, CancellationToken ct = default)
         {
             return await _context.UserSkills
-                .FirstOrDefaultAsync(x => x.ProfileId == profileId && x.SkillId == skillId);
+                .FirstOrDefaultAsync(x => x.ProfileId == profileId && x.SkillId == skillId, ct);
         }
 
-
-        public async Task<List<UserSkill>> GetByProfileIdAsync(int profileId)
+        public async Task<List<UserSkill>> GetByProfileIdAsync(int profileId, CancellationToken ct = default)
         {
             return await _context.UserSkills
                 .Where(us => us.ProfileId == profileId && !us.IsDeleted)
-                .ToListAsync();
+                .ToListAsync(ct);
         }
-        public async Task<List<UserSkill>> GetByProfileIdsAsync(List<int> profileIds)
+
+        public async Task<List<UserSkill>> GetByProfileIdsAsync(IReadOnlyCollection<int> profileIds, CancellationToken ct = default)
         {
+            if (profileIds == null || profileIds.Count == 0)
+                return new List<UserSkill>();
+
             return await _context.UserSkills
                 .Where(us => profileIds.Contains(us.ProfileId) && !us.IsDeleted)
-                .ToListAsync();
-        }
-        public async Task<UserSkill?> GetWithDetailsAsync(int id)
-        {
-            return await _context.UserSkills
-                .Include(us => us.Profile)
-                .Include(us => us.Skill)
-                .FirstOrDefaultAsync(us => us.Id == id && !us.IsDeleted);
-        }
-
-        public async Task<List<UserSkill>> GetByProfileIdWithDetailsAsync(int profileId)
-        {
-            return await _context.UserSkills
-                .Include(us => us.Profile)
-                .Include(us => us.Skill)
-                .Where(us => us.ProfileId == profileId && !us.IsDeleted)
-                .ToListAsync();
+                .ToListAsync(ct);
         }
     }
 }

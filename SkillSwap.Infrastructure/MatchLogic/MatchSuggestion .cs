@@ -1,6 +1,6 @@
 ﻿using AutoMapper;
 using SkillSwap.Application.DTO;
-using SkillSwap.Application.Interfaces;
+using SkillSwap.Application.Interfaces.ExternalInterfaces;
 using SkillSwap.Domain.Entities.Commons;
 using SkillSwap.Domain.Entities.Database;
 using SkillSwap.Domain.Enums;
@@ -10,12 +10,14 @@ using ProfileEntity = SkillSwap.Domain.Entities.Database.Profile;
 
 namespace SkillSwap.Infrastructure.MatchLogic
 {
-    public class MatchSuggestion
+    public class MatchSuggestion : IMatchSuggestion
     {
         private readonly IProfileRepository _profileRepository;
         private readonly IUserSkillRepository _userSkillRepository;
         private readonly IUserRepository _userRepository;
         private readonly IMatchRepository _matchRepository;
+        private readonly IMatchSwipeRepository _matchSwipeRepository;
+        private readonly ISkillRepository _skillRepository;
         private readonly IMapper _mapper;
 
         public MatchSuggestion(
@@ -23,62 +25,87 @@ namespace SkillSwap.Infrastructure.MatchLogic
             IUserSkillRepository userSkillRepository,
             IUserRepository userRepository,
             IMatchRepository matchRepository,
+            IMatchSwipeRepository matchSwipeRepository,
+            ISkillRepository skillRepository,
             IMapper mapper)
         {
             _profileRepository = profileRepository;
             _userSkillRepository = userSkillRepository;
             _userRepository = userRepository;
             _matchRepository = matchRepository;
+            _matchSwipeRepository = matchSwipeRepository;
+            _skillRepository = skillRepository;
             _mapper = mapper;
         }
 
-        public async Task<Result<List<MatchSuggestionDTO>>> GetSuggestionsAsync(int currentUserId, int limit = 20)
+        public async Task<Result<List<MatchSuggestionDTO>>> GetSuggestionsAsync(int currentUserId, int limit = 20, CancellationToken ct = default)
         {
             try
             {
-                var myProfile = await _profileRepository.GetByUserIdAsync(currentUserId);
+                // ===== Walidacja parametrów =====
+                if (limit < 1 || limit > 50)
+                {
+                    return new()
+                    {
+                        IsSuccess = false,
+                        Message = "Limit must be between 1 and 50",
+                        StatusCode = 400
+                    };
+                }
+
+                // ===== Profil użytkownika =====
+                var myProfile = await _profileRepository.GetByUserIdAsync(currentUserId, ct);
                 if (myProfile is null || myProfile.IsDeleted)
                 {
                     return new()
                     {
                         IsSuccess = false,
-                        Message = "Profile for current user not found"
+                        Message = "Profile for current user not found",
+                        StatusCode = 404
                     };
                 }
 
-                // --- moje skille ---
-                var mySkills = await _userSkillRepository.GetByProfileIdAsync(myProfile.Id);
+                // ===== Moje skille (uczę / chcę się nauczyć) =====
+                var mySkills = await _userSkillRepository.GetByProfileIdAsync(myProfile.Id, ct);
                 var myTeach = mySkills.Where(s => s.Learned).ToList();      // czego JA uczę
                 var myLearn = mySkills.Where(s => !s.Learned).ToList();     // czego JA chcę się uczyć
 
                 var myTeachIds = myTeach.Select(s => s.SkillId).ToHashSet();
                 var myLearnIds = myLearn.Select(s => s.SkillId).ToHashSet();
 
-                // --- dane globalne do algorytmu ---
-                var allProfiles = await _profileRepository.GetAsync();   // wszystkie profile
-                var users = await _userRepository.GetAsync();      // wszyscy userzy (TO było brakujące!)
+                // ===== Kandydaci (filtry: nie ja, nie usunięty, onboarding, bez matchy, bez swipe) =====
+                var allProfiles = await _profileRepository.GetAsync(ct);   // wszystkie profile
 
-                var allMatches = await _matchRepository.GetAsync();
-                var myMatchPartners = allMatches
-                    .Where(m => m.Profile1Id == myProfile.Id || m.Profile2Id == myProfile.Id)
+                var myMatches = await _matchRepository.GetByProfileIdAsync(myProfile.Id, ct);
+                var myMatchPartners = myMatches
                     .Select(m => m.Profile1Id == myProfile.Id ? m.Profile2Id : m.Profile1Id)
                     .ToHashSet();
 
+                var swipedProfileIds = (await _matchSwipeRepository.GetSwipedToProfileIdsAsync(myProfile.Id, ct)).ToHashSet();
+
+                var candidateProfiles = allProfiles
+                    .Where(p => p.Id != myProfile.Id)
+                    .Where(p => !p.IsDeleted)
+                    .Where(p => p.IsOnboardingComplete)
+                    .Where(p => !myMatchPartners.Contains(p.Id))
+                    .Where(p => !swipedProfileIds.Contains(p.Id))
+                    .ToList();
+
+                var candidateProfileIds = candidateProfiles.Select(p => p.Id).ToList();
+                var candidatesSkills = await _userSkillRepository.GetByProfileIdsAsync(candidateProfileIds, ct);
+                var skillsByProfile = candidatesSkills
+                    .GroupBy(s => s.ProfileId)
+                    .ToDictionary(g => g.Key, g => g.ToList());
+
+                var candidateUserIds = candidateProfiles.Select(p => p.UserId).Distinct().ToList();
+                var users = await _userRepository.GetByIdsAsync(candidateUserIds, ct);
+
                 var suggestions = new List<MatchSuggestionDTO>();
 
-                foreach (var profile in allProfiles)
+                // ===== Liczenie score dla każdego kandydata =====
+                foreach (var profile in candidateProfiles)
                 {
-                    if (profile.Id == myProfile.Id)
-                        continue;
-
-                    if (profile.IsDeleted)
-                        continue;
-
-                    if (myMatchPartners.Contains(profile.Id))
-                        continue;
-
-                    var otherSkills = await _userSkillRepository.GetByProfileIdAsync(profile.Id);
-                    if (!otherSkills.Any())
+                    if (!skillsByProfile.TryGetValue(profile.Id, out var otherSkills) || otherSkills is null || !otherSkills.Any())
                         continue;
 
                     var otherTeach = otherSkills.Where(s => s.Learned).ToList();      // on uczy
@@ -86,8 +113,11 @@ namespace SkillSwap.Infrastructure.MatchLogic
                     var otherTeachIds = otherTeach.Select(s => s.SkillId).ToHashSet();
                     var otherLearnIds = otherLearn.Select(s => s.SkillId).ToHashSet();
 
-                    var teachMeCount = myLearnIds.Intersect(otherTeachIds).Count();   // on może mnie uczyć
-                    var teachThemCount = myTeachIds.Intersect(otherLearnIds).Count();   // ja mogę uczyć jego
+                    var teachMeSkills = myLearnIds.Intersect(otherTeachIds).ToList();   // on może mnie uczyć
+                    var teachThemSkills = myTeachIds.Intersect(otherLearnIds).ToList();   // ja mogę uczyć jego
+
+                    var teachMeCount = teachMeSkills.Count;
+                    var teachThemCount = teachThemSkills.Count;
 
                     if (teachMeCount == 0 && teachThemCount == 0)
                         continue; // brak realnej wymiany → skip
@@ -96,7 +126,7 @@ namespace SkillSwap.Infrastructure.MatchLogic
                     double levelFitScore = ComputeLevelFitScore(myTeach, myLearn, otherTeach, otherLearn);
                     double meetingTypeScore = ComputeMeetingTypeScore(myProfile, profile);
                     double learningStyleScore = ComputeLearningStyleScore(myProfile, profile);
-                    double distanceScore = ComputeDistanceScore(myProfile, profile, meetingTypeScore);
+                    double distanceScore = ComputeDistanceScore(myProfile, profile);
                     double availabilityScore = ComputeAvailabilityScore(myProfile, profile);
 
                     double preferenceScore = 0.6 * meetingTypeScore + 0.4 * learningStyleScore;
@@ -128,14 +158,46 @@ namespace SkillSwap.Infrastructure.MatchLogic
                         DistanceScore = distanceScore,
                         OpinionFactor = opinionFactor,
                         ProfileFactor = profileFactor,
-                        NewUserBoost = newUserBoost
+                        NewUserBoost = newUserBoost,
+                        TeachMeCount = teachMeCount,
+                        TeachThemCount = teachThemCount,
+                        SkillsTheyCanTeachMe = teachMeSkills,
+                        SkillsICanTeachThem = teachThemSkills
                     });
                 }
 
+                // ===== Sortowanie i limit =====
                 var ordered = suggestions
                     .OrderByDescending(s => s.MatchScore)
                     .Take(limit)
                     .ToList();
+
+                // ===== Optional enrichment: attach skill names for quick UI rendering =====
+                var allSkillIds = ordered
+                    .SelectMany(s => s.SkillsTheyCanTeachMe.Concat(s.SkillsICanTeachThem))
+                    .Distinct()
+                    .ToList();
+
+                if (allSkillIds.Count > 0)
+                {
+                    var skillEntities = await _skillRepository.GetByIdsAsync(allSkillIds, ct);
+                    var skillMap = skillEntities.ToDictionary(
+                        s => s.Id,
+                        s => new SkillPreviewDTO { Id = s.Id, Name = s.Name, Category = s.Category });
+
+                    foreach (var s in ordered)
+                    {
+                        s.SkillsTheyCanTeachMeDetails = s.SkillsTheyCanTeachMe
+                            .Where(id => skillMap.ContainsKey(id))
+                            .Select(id => skillMap[id])
+                            .ToList();
+
+                        s.SkillsICanTeachThemDetails = s.SkillsICanTeachThem
+                            .Where(id => skillMap.ContainsKey(id))
+                            .Select(id => skillMap[id])
+                            .ToList();
+                    }
+                }
 
                 return new()
                 {
@@ -155,20 +217,26 @@ namespace SkillSwap.Infrastructure.MatchLogic
         }
 
 
+        // ===== Składowe algorytmu (score) =====
+
         private double CalculateSkillFitScore(int teachMeCount, int teachThemCount)
         {
             // można potem rozbudować, na razie prosto:
-            // 0.6 za to, że on umie coś, czego ja chcę się uczyć
-            // 0.4 za to, że ja umiem coś, czego on chce się uczyć
-            double score = 0.0;
+            // 0..1 na podstawie liczby skilli, z lekkim bonusem za wzajemność
+            double a = CountToScore(teachMeCount);
+            double b = CountToScore(teachThemCount);
+            double mutual = (teachMeCount > 0 && teachThemCount > 0) ? 0.15 : 0.0;
 
-            if (teachMeCount > 0)
-                score += 0.6;
+            double score = 0.55 * a + 0.45 * b + mutual;
+            return Math.Clamp(score, 0.0, 1.0);
+        }
 
-            if (teachThemCount > 0)
-                score += 0.4;
+        private double CountToScore(int count)
+        {
+            if (count <= 0)
+                return 0.0;
 
-            return score; // 0, 0.6, 0.4, 1.0
+            return 1.0 - Math.Exp(-count / 2.5);
         }
 
         private double ComputeOpinionFactor(User? user)
@@ -308,7 +376,7 @@ namespace SkillSwap.Infrastructure.MatchLogic
             return 0.5;
         }
 
-        private double ComputeDistanceScore(ProfileEntity mine, ProfileEntity other, double meetingTypeScore)
+        private double ComputeDistanceScore(ProfileEntity mine, ProfileEntity other)
         {
             // jeżeli ktoś dopuszcza Online/Hybrid → miejsce mniej ważne
             if (mine.PreferredMeetingType == MeetingType.Online ||
@@ -371,12 +439,11 @@ namespace SkillSwap.Infrastructure.MatchLogic
 
             double ratio = (double)overlap / mySlots; // 0..1
 
-            // lekko „zkompresujemy”:
             if (ratio >= 0.8) return 1.0;
             if (ratio >= 0.5) return 0.9;
             if (ratio >= 0.3) return 0.7;
             if (ratio > 0.0) return 0.4;
-            return 0.1; // kompletnie inne godziny
+            return 0.1; 
         }
 
     }

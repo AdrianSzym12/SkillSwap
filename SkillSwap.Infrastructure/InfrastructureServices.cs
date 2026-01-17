@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
+using SkillSwap.Application.Interfaces.ExternalInterfaces;
 using SkillSwap.Infrastructure.MatchLogic;
 
 namespace SkillSwap.Infrastructure
@@ -7,7 +8,7 @@ namespace SkillSwap.Infrastructure
     {
         public static IServiceCollection AddInfrastructureServices(this IServiceCollection services)
         {
-            services.AddScoped<MatchSuggestion>();
+            services.AddScoped<IMatchSuggestion, MatchSuggestion>();
 
             return services;
         }

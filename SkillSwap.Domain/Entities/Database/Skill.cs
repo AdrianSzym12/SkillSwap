@@ -16,7 +16,6 @@ namespace SkillSwap.Domain.Entities.Database
         [MaxLength(500)]
         public string Description { get; set; }
 
-        // NOWE:
         public SkillCategory Category { get; set; } = SkillCategory.Other;
 
         

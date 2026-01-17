@@ -7,7 +7,6 @@ namespace SkillSwap.Domain.Services
     {
         public static (double completion, List<string> missingFields, bool isComplete) Evaluate(Profile profile)
         {
-            // Zdecyduj co jest “must-have” aby zacząć (dopasuj do Twojego flow)
             var required = new List<(string Field, bool Present)>
             {
                 ("UserName", !string.IsNullOrWhiteSpace(profile.UserName)),

@@ -13,18 +13,20 @@ namespace SkillSwap.Persistence.Repositories
             _context = context;
         }
 
-        public async Task<User?> GetByEmailAsync(string email)
+        public async Task<User?> GetByEmailAsync(string email, CancellationToken ct = default)
         {
             return await _context.Users
-            .FirstOrDefaultAsync(u => u.Email == email && !u.IsDeleted);
+                .FirstOrDefaultAsync(u => u.Email == email && !u.IsDeleted, ct);
         }
-        public async Task<List<User>> GetByIdsAsync(List<int> userIds)
+
+        public async Task<List<User>> GetByIdsAsync(IReadOnlyCollection<int> userIds, CancellationToken ct = default)
         {
+            if (userIds == null || userIds.Count == 0)
+                return new List<User>();
+
             return await _context.Users
                 .Where(u => userIds.Contains(u.Id) && !u.IsDeleted)
-                .ToListAsync();
+                .ToListAsync(ct);
         }
-
     }
-
 }

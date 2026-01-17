@@ -36,6 +36,7 @@ namespace SkillSwap.Application.Services.Domain.Services
                     Data = mapped,
                     Message = "User created successfully"
                 };
+
             }
             catch (Exception ex)
             {

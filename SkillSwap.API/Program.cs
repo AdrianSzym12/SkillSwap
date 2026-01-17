@@ -27,12 +27,12 @@ namespace SkillSwap.API
                 if(dbContext.Database.GetPendingMigrations().Any())
                     dbContext.Database.Migrate();
             }
-
-            using (var scope = app.Services.CreateScope())
+            // Seeder
+            /*using (var scope = app.Services.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<PersistenceContext>();
                 await SkillSeeder.SeedAsync(db);
-            }
+            }*/
 
             app.UseErrorHandling();
             // Configure the HTTP request pipeline.

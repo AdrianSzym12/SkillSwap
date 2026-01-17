@@ -13,7 +13,6 @@ namespace SkillSwap.Application.Interfaces
         Task<Result<string>> DeleteAsync(int id, int currentUserId);
         Task<Result<UserSkillDTO>> AddMeAsync(UserSkillCreateMeDTO dto, int currentUserId);
         Task<Result<UserSkillDTO>> UpdateMeAsync(int userSkillId, UserSkillUpdateMeDTO dto, int currentUserId);
-        Task<Result<List<UserSkillDTO>>> GetMeAsync(int currentUserId);
 
     }
 }

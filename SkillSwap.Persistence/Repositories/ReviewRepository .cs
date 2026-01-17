@@ -20,26 +20,19 @@ namespace SkillSwap.Persistence.Repositories
                 .ToListAsync();
         }
 
-        public async Task<List<Review>> GetByFromProfileIdAsync(int fromProfileId)
-        {
-            return await _context.Reviews
-                .Where(r => r.FromProfileId == fromProfileId && !r.IsDeleted)
-                .ToListAsync();
-        }
-
         public async Task<List<Review>> GetByMatchIdAsync(int matchId)
         {
             return await _context.Reviews
                 .Where(r => r.MatchId == matchId && !r.IsDeleted)
                 .ToListAsync();
         }
-
         public async Task<Review?> GetByFromProfileAndMatchAsync(int fromProfileId, int matchId)
         {
             return await _context.Reviews
-                .FirstOrDefaultAsync(r => r.FromProfileId == fromProfileId &&
-                                          r.MatchId == matchId &&
-                                          !r.IsDeleted);
+                .FirstOrDefaultAsync(r =>
+                    r.FromProfileId == fromProfileId &&
+                    r.MatchId == matchId &&
+                    !r.IsDeleted);
         }
     }
 }

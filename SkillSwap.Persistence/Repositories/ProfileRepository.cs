@@ -13,20 +13,21 @@ namespace SkillSwap.Persistence.Repositories
             _context = context;
         }
 
-        public async Task<Profile?> GetByUserIdAsync(int userId)
+        public async Task<Profile?> GetByUserIdAsync(int userId, CancellationToken ct = default)
         {
             return await _context.Profiles
-                .FirstOrDefaultAsync(p => p.UserId == userId &&!p.IsDeleted);
+                .FirstOrDefaultAsync(p => p.UserId == userId && !p.IsDeleted, ct);
         }
-        public async Task<Profile?> GetAnyByUserIdAsync(int userId)
+
+        public async Task<Profile?> GetAnyByUserIdAsync(int userId, CancellationToken ct = default)
         {
             return await _context.Profiles
-                .FirstOrDefaultAsync(p => p.UserId == userId);
+                .FirstOrDefaultAsync(p => p.UserId == userId, ct);
         }
-        public async Task<bool> ExistsByUserNameAsync(string userName)
+
+        public async Task<bool> ExistsByUserNameAsync(string userName, CancellationToken ct = default)
         {
-            return await _context.Profiles.AnyAsync(p => p.UserName == userName && !p.IsDeleted);
+            return await _context.Profiles.AnyAsync(p => p.UserName == userName && !p.IsDeleted, ct);
         }
     }
-    
 }

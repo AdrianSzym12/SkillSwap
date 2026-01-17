@@ -1,9 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using SkillSwap.Domain.Entities.Commons;
 using SkillSwap.Domain.Interfaces;
-using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 
 namespace SkillSwap.Persistence.Repositories
 {
@@ -16,14 +14,14 @@ namespace SkillSwap.Persistence.Repositories
             _dbContext = dbContext;
         }
 
-        public virtual async Task<T> AddAsync(T entity)
+        public virtual async Task<T> AddAsync(T entity, CancellationToken ct = default)
         {
-            await _dbContext.Set<T>().AddAsync(entity);
-            await _dbContext.SaveChangesAsync();
+            await _dbContext.Set<T>().AddAsync(entity, ct);
+            await _dbContext.SaveChangesAsync(ct);
             return entity;
         }
 
-        public virtual async Task<List<T>> GetAsync()
+        public virtual async Task<List<T>> GetAsync(CancellationToken ct = default)
         {
             var query = _dbContext.Set<T>().AsQueryable();
 
@@ -32,12 +30,12 @@ namespace SkillSwap.Persistence.Repositories
                 query = query.Where(e => !EF.Property<bool>(e, "IsDeleted"));
             }
 
-            return await query.ToListAsync();
+            return await query.ToListAsync(ct);
         }
 
-        public virtual async Task<T?> GetAsync(int id)
+        public virtual async Task<T?> GetAsync(int id, CancellationToken ct = default)
         {
-            var entity = await _dbContext.Set<T>().FindAsync(id);
+            var entity = await _dbContext.Set<T>().FindAsync(new object[] { id }, ct);
 
             if (entity is ISoftDeletable soft && soft.IsDeleted)
                 return null;
@@ -45,14 +43,14 @@ namespace SkillSwap.Persistence.Repositories
             return entity;
         }
 
-        public virtual async Task<T> UpdateAsync(T entity)
+        public virtual async Task<T> UpdateAsync(T entity, CancellationToken ct = default)
         {
             _dbContext.Set<T>().Update(entity);
-            await _dbContext.SaveChangesAsync();
+            await _dbContext.SaveChangesAsync(ct);
             return entity;
         }
 
-        public virtual async Task DeleteAsync(T entity)
+        public virtual async Task DeleteAsync(T entity, CancellationToken ct = default)
         {
             if (entity is ISoftDeletable soft)
             {
@@ -71,7 +69,7 @@ namespace SkillSwap.Persistence.Repositories
                 _dbContext.Set<T>().Remove(entity);
             }
 
-            await _dbContext.SaveChangesAsync();
+            await _dbContext.SaveChangesAsync(ct);
         }
     }
 }

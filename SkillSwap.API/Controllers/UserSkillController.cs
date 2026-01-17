@@ -2,6 +2,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SkillSwap.API.Helpers;
 using SkillSwap.Application.DTO;
 using SkillSwap.Application.Interfaces;
 
@@ -19,22 +20,22 @@ namespace SkillSwap.API.Controllers
             _userSkillService = userSkillService;
         }
 
-       private int? GetCurrentUserId()
-{
-    var value =
-        User.FindFirstValue(JwtRegisteredClaimNames.Sub) ??
-        User.FindFirstValue(ClaimTypes.NameIdentifier) ??
-        User.FindFirstValue("nameid");
+        private int? GetCurrentUserId()
+        {
+            var value =
+                User.FindFirstValue(JwtRegisteredClaimNames.Sub) ??
+                User.FindFirstValue(ClaimTypes.NameIdentifier) ??
+                User.FindFirstValue("nameid");
 
-    return int.TryParse(value, out var userId) ? userId : null;
-}
+            return int.TryParse(value, out var userId) ? userId : null;
+        }
 
         [HttpGet("{id:int}", Name = "GetUserSkillById")]
         public async Task<IActionResult> GetAsync(int id, CancellationToken ct)
         {
             var result = await _userSkillService.GetAsync(id);
             if (!result.IsSuccess)
-                return Problem(detail: result.Message);
+                return this.ProblemFromResult(result);
             return Ok(result.Data);
         }
 
@@ -43,22 +44,10 @@ namespace SkillSwap.API.Controllers
         {
             var result = await _userSkillService.GetAsync();
             if (!result.IsSuccess)
-                return Problem(detail: result.Message);
+                return this.ProblemFromResult(result);
             return Ok(result.Data);
         }
-        [HttpGet("me")]
-        public async Task<IActionResult> GetMe(CancellationToken ct)
-        {
-            var userId = GetCurrentUserId();
-            if (userId is null)
-                return Unauthorized(new { message = "Invalid user token" });
 
-            var result = await _userSkillService.GetMeAsync(userId.Value);
-            if (!result.IsSuccess)
-                return Problem(detail: result.Message);
-
-            return Ok(result.Data);
-        }
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] UserSkillDTO request, CancellationToken ct)
         {
@@ -71,8 +60,7 @@ namespace SkillSwap.API.Controllers
 
             var result = await _userSkillService.AddAsync(request, userId.Value);
             if (!result.IsSuccess)
-                return Problem(detail: result.Message);
-
+                return this.ProblemFromResult(result);
             return CreatedAtRoute("GetUserSkillById", new { id = result.Data.Id }, result.Data);
         }
 
@@ -88,8 +76,7 @@ namespace SkillSwap.API.Controllers
 
             var result = await _userSkillService.AddMeAsync(request, userId.Value);
             if (!result.IsSuccess)
-                return Problem(detail: result.Message);
-
+                return this.ProblemFromResult(result);
             return CreatedAtRoute("GetUserSkillById", new { id = result.Data.Id }, result.Data);
         }
         [HttpPut("me/{id:int}")]
@@ -104,8 +91,7 @@ namespace SkillSwap.API.Controllers
 
             var result = await _userSkillService.UpdateMeAsync(id, request, userId.Value);
             if (!result.IsSuccess)
-                return Problem(detail: result.Message);
-
+                return this.ProblemFromResult(result);
             return Ok(result.Data);
         }
 
@@ -125,8 +111,7 @@ namespace SkillSwap.API.Controllers
 
             var result = await _userSkillService.UpdateAsync(request, userId.Value);
             if (!result.IsSuccess)
-                return Problem(detail: result.Message);
-
+                return this.ProblemFromResult(result);
             return Ok(result.Data);
         }
 
@@ -139,8 +124,7 @@ namespace SkillSwap.API.Controllers
 
             var result = await _userSkillService.DeleteAsync(id, userId.Value);
             if (!result.IsSuccess)
-                return Problem(detail: result.Message);
-
+                return this.ProblemFromResult(result);
             return Ok(new { message = result.Message });
         }
     }

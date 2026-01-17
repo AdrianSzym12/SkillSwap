@@ -2,11 +2,10 @@
 
 namespace SkillSwap.Domain.Interfaces
 {
-    public interface IProfileRepository :IBaseRepository<Profile>
+    public interface IProfileRepository : IBaseRepository<Profile>
     {
-        Task<Profile?> GetByUserIdAsync(int userId);
-        Task<Profile?> GetAnyByUserIdAsync(int userId);
-        Task<bool> ExistsByUserNameAsync(string userName);
+        Task<Profile?> GetByUserIdAsync(int userId, CancellationToken ct = default);
+        Task<Profile?> GetAnyByUserIdAsync(int userId, CancellationToken ct = default);
+        Task<bool> ExistsByUserNameAsync(string userName, CancellationToken ct = default);
     }
-  
 }
