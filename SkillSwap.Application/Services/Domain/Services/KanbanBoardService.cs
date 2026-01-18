@@ -26,19 +26,18 @@ namespace SkillSwap.Application.Services.Domain.Services
             _mapper = mapper;
         }
 
-        public async Task<Result<KanbanBoardDTO>> GetAsync(int id)
+        public async Task<Result<KanbanBoardDTO>> GetAsync(int id, CancellationToken ct)
         {
             try
             {
-                var board = await _boardRepository.GetAsync(id);
+                var board = await _boardRepository.GetAsync(id, ct);
                 if (board is null)
                     return new() { IsSuccess = false, Message = "KanbanBoard not found" };
 
-                var dto = _mapper.Map<KanbanBoardDTO>(board);
                 return new()
                 {
                     IsSuccess = true,
-                    Data = dto,
+                    Data = _mapper.Map<KanbanBoardDTO>(board),
                     Message = "KanbanBoard retrieved successfully"
                 };
             }
@@ -48,11 +47,24 @@ namespace SkillSwap.Application.Services.Domain.Services
             }
         }
 
-        public async Task<Result<List<KanbanBoardDTO>>> GetAsync()
+       
+
+        public async Task<Result<List<KanbanBoardDTO>>> GetByMatchAsync(int matchId, int currentUserId, CancellationToken ct)
         {
             try
             {
-                var boards = await _boardRepository.GetAsync();
+                var match = await _matchRepository.GetAsync(matchId, ct);
+                if (match is null)
+                    return new() { IsSuccess = false, Message = "Match not found" };
+
+                var profile = await _profileRepository.GetByUserIdAsync(currentUserId, ct);
+                if (profile is null || profile.IsDeleted)
+                    return new() { IsSuccess = false, Message = "Profile for current user not found" };
+
+                if (match.Profile1Id != profile.Id && match.Profile2Id != profile.Id)
+                    return new() { IsSuccess = false, Message = "You are not a participant of this match" };
+
+                var boards = await _boardRepository.GetByMatchIdAsync(matchId, ct);
                 var dtos = boards.Select(b => _mapper.Map<KanbanBoardDTO>(b)).ToList();
 
                 return new()
@@ -68,69 +80,37 @@ namespace SkillSwap.Application.Services.Domain.Services
             }
         }
 
-        public async Task<Result<List<KanbanBoardDTO>>> GetByMatchAsync(int matchId, int currentUserId)
+        public async Task<Result<KanbanBoardDTO>> AddAsync(KanbanBoardCreateDTO dto, int currentUserId, CancellationToken ct)
         {
             try
             {
-                var match = await _matchRepository.GetAsync(matchId);
+                var match = await _matchRepository.GetAsync(dto.MatchId, ct);
                 if (match is null)
                     return new() { IsSuccess = false, Message = "Match not found" };
 
-                var profile = await _profileRepository.GetByUserIdAsync(currentUserId);
+                var profile = await _profileRepository.GetByUserIdAsync(currentUserId, ct);
                 if (profile is null || profile.IsDeleted)
                     return new() { IsSuccess = false, Message = "Profile for current user not found" };
 
                 if (match.Profile1Id != profile.Id && match.Profile2Id != profile.Id)
                     return new() { IsSuccess = false, Message = "You are not a participant of this match" };
 
-                var boards = await _boardRepository.GetAsync();
-                var filtered = boards.Where(b => b.MatchId == matchId).ToList();
-                var dtos = filtered.Select(b => _mapper.Map<KanbanBoardDTO>(b)).ToList();
-
-                return new()
+                var entity = new KanbanBoard
                 {
-                    IsSuccess = true,
-                    Data = dtos,
-                    Message = "KanbanBoards retrieved successfully"
+                    MatchId = dto.MatchId,
+                    AuthorId = currentUserId, // trzymasz jako UserId (spójne z JWT)
+                    Title = dto.Title,
+                    Description = dto.Description,
+                    CreatedAt = DateTime.UtcNow,
+                    IsDeleted = false
                 };
-            }
-            catch (Exception ex)
-            {
-                return new() { IsSuccess = false, Message = $"Error retrieving KanbanBoards: {ex.Message}" };
-            }
-        }
 
-        public async Task<Result<KanbanBoardDTO>> AddAsync(KanbanBoardDTO dto, int currentUserId)
-        {
-            try
-            {
-                if (dto.match == null || dto.match.Id <= 0)
-                    return new() { IsSuccess = false, Message = "Match is required" };
-
-                var match = await _matchRepository.GetAsync(dto.match.Id);
-                if (match is null)
-                    return new() { IsSuccess = false, Message = "Match not found" };
-
-                var profile = await _profileRepository.GetByUserIdAsync(currentUserId);
-                if (profile is null || profile.IsDeleted)
-                    return new() { IsSuccess = false, Message = "Profile for current user not found" };
-
-                if (match.Profile1Id != profile.Id && match.Profile2Id != profile.Id)
-                    return new() { IsSuccess = false, Message = "You are not a participant of this match" };
-
-                var entity = _mapper.Map<KanbanBoard>(dto);
-                entity.MatchId = match.Id;
-                entity.AuthorId = currentUserId;
-                entity.CreatedAt = DateTime.UtcNow;
-                entity.IsDeleted = false;
-
-                var added = await _boardRepository.AddAsync(entity);
-                var mapped = _mapper.Map<KanbanBoardDTO>(added);
+                var added = await _boardRepository.AddAsync(entity, ct);
 
                 return new()
                 {
                     IsSuccess = true,
-                    Data = mapped,
+                    Data = _mapper.Map<KanbanBoardDTO>(added),
                     Message = "KanbanBoard created successfully"
                 };
             }
@@ -140,11 +120,11 @@ namespace SkillSwap.Application.Services.Domain.Services
             }
         }
 
-        public async Task<Result<KanbanBoardDTO>> UpdateAsync(KanbanBoardDTO dto, int currentUserId)
+        public async Task<Result<KanbanBoardDTO>> UpdateAsync(int id, KanbanBoardUpdateDTO dto, int currentUserId, CancellationToken ct)
         {
             try
             {
-                var board = await _boardRepository.GetAsync(dto.Id);
+                var board = await _boardRepository.GetAsync(id, ct);
                 if (board is null)
                     return new() { IsSuccess = false, Message = "KanbanBoard not found" };
 
@@ -154,13 +134,12 @@ namespace SkillSwap.Application.Services.Domain.Services
                 board.Title = dto.Title;
                 board.Description = dto.Description;
 
-                var updated = await _boardRepository.UpdateAsync(board);
-                var mapped = _mapper.Map<KanbanBoardDTO>(updated);
+                var updated = await _boardRepository.UpdateAsync(board, ct);
 
                 return new()
                 {
                     IsSuccess = true,
-                    Data = mapped,
+                    Data = _mapper.Map<KanbanBoardDTO>(updated),
                     Message = "KanbanBoard updated successfully"
                 };
             }
@@ -170,18 +149,19 @@ namespace SkillSwap.Application.Services.Domain.Services
             }
         }
 
-        public async Task<Result<string>> DeleteAsync(int id, int currentUserId)
+
+        public async Task<Result<string>> DeleteAsync(int id, int currentUserId, CancellationToken ct)
         {
             try
             {
-                var board = await _boardRepository.GetAsync(id);
+                var board = await _boardRepository.GetAsync(id, ct);
                 if (board is null)
                     return new() { IsSuccess = false, Message = "KanbanBoard not found" };
 
                 if (board.AuthorId != currentUserId)
                     return new() { IsSuccess = false, Message = "You are not the author of this board" };
 
-                await _boardRepository.DeleteAsync(board); 
+                await _boardRepository.DeleteAsync(board, ct);
 
                 return new()
                 {
