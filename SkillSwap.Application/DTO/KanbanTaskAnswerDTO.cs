@@ -1,16 +1,22 @@
-﻿namespace SkillSwap.Application.DTO
+﻿using System.ComponentModel.DataAnnotations;
+
+namespace SkillSwap.Application.DTO
 {
     public class KanbanTaskAnswerDTO
     {
         public int Id { get; set; }
-        public int TaskId { get; set; }
 
-        public int ProfileId { get; set; }   
-        public string Content { get; set; } = null!;
+        [Required]
+        public KanbanTaskDTO kanbanTask { get; set; }
 
-        public int? CheckerId { get; set; }  
+        [Required]
+        public ProfileDTO profile { get; set; }
+
+        [Required, MaxLength(2000)]
+        public string Content { get; set; }
+
+        public int CheckerId { get; set; }
         public DateTime? VerifiedAt { get; set; }
-
         public DateTime CreatedAt { get; set; }
     }
 }

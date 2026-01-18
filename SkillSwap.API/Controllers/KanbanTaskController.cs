@@ -1,85 +1,118 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SkillSwap.Application.DTO;
 using SkillSwap.Application.Interfaces;
-using SkillSwap.Domain.Entities.Database;
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 
-[Authorize]
-[ApiController]
-[Route("api/[controller]")]
-public class KanbanTaskController : ControllerBase
+namespace SkillSwap.API.Controllers
 {
-    private readonly IKanbanTaskService _taskService;
-    public KanbanTaskController(IKanbanTaskService taskService) => _taskService = taskService;
-
-    private int? GetCurrentUserId()
+    [Authorize]
+    [ApiController]
+    [Route("api/[controller]")]
+    public class KanbanTaskController : ControllerBase
     {
-        var idClaim = User.Claims.FirstOrDefault(c =>
-            c.Type == JwtRegisteredClaimNames.Sub ||
-            c.Type == ClaimTypes.NameIdentifier);
+        private readonly IKanbanTaskService _taskService;
 
-        return (idClaim != null && int.TryParse(idClaim.Value, out var userId)) ? userId : null;
-    }
+        public KanbanTaskController(IKanbanTaskService taskService)
+        {
+            _taskService = taskService;
+        }
 
-    [HttpGet("{id:int}")]
-    public async Task<IActionResult> Get(int id, CancellationToken ct)
-    {
-        var result = await _taskService.GetAsync(id, ct);
-        if (!result.IsSuccess) return Problem(detail: result.Message);
-        return Ok(result.Data);
-    }
+        private int? GetCurrentUserId()
+        {
+            var idClaim = User.Claims.FirstOrDefault(c =>
+                c.Type == JwtRegisteredClaimNames.Sub ||
+                c.Type == ClaimTypes.NameIdentifier);
 
-    [HttpGet("board/{boardId:int}")]
-    public async Task<IActionResult> GetByBoard(int boardId, CancellationToken ct)
-    {
-        var userId = GetCurrentUserId();
-        if (userId is null) return Unauthorized("Invalid token");
+            if (idClaim == null || !int.TryParse(idClaim.Value, out var userId))
+                return null;
 
-        var result = await _taskService.GetByBoardAsync(boardId, userId.Value, ct);
-        if (!result.IsSuccess) return Problem(detail: result.Message);
+            return userId;
+        }
 
-        return Ok(result.Data);
-    }
+        [HttpGet("{id:int}")]
+        public async Task<IActionResult> Get(int id, CancellationToken ct)
+        {
+            var result = await _taskService.GetAsync(id);
+            if (!result.IsSuccess)
+                return Problem(detail: result.Message);
+            return Ok(result.Data);
+        }
 
-    [HttpPost]
-    public async Task<IActionResult> Create([FromBody] KanbanTaskCreateDTO request, CancellationToken ct)
-    {
-        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+        [HttpGet]
+        public async Task<IActionResult> GetAll(CancellationToken ct)
+        {
+            var result = await _taskService.GetAsync();
+            if (!result.IsSuccess)
+                return Problem(detail: result.Message);
+            return Ok(result.Data);
+        }
 
-        var userId = GetCurrentUserId();
-        if (userId is null) return Unauthorized("Invalid token");
+        [HttpGet("board/{boardId:int}")]
+        public async Task<IActionResult> GetByBoard(int boardId, CancellationToken ct)
+        {
+            var userId = GetCurrentUserId();
+            if (userId is null)
+                return Unauthorized("Invalid token");
 
-        var result = await _taskService.AddAsync(request, userId.Value, ct);
-        if (!result.IsSuccess) return Problem(detail: result.Message);
+            var result = await _taskService.GetByBoardAsync(boardId, userId.Value);
+            if (!result.IsSuccess)
+                return Problem(detail: result.Message);
 
-        return CreatedAtAction(nameof(Get), new { id = result.Data.Id }, result.Data);
-    }
+            return Ok(result.Data);
+        }
 
-    [HttpPut("{id:int}")]
-    public async Task<IActionResult> Update(int id, [FromBody] KanbanTaskUpdateDTO request, CancellationToken ct)
-    {
-        if (!ModelState.IsValid) return ValidationProblem(ModelState);
+        [HttpPost]
+        public async Task<IActionResult> Create([FromBody] KanbanTaskDTO request, CancellationToken ct)
+        {
+            if (!ModelState.IsValid)
+                return ValidationProblem(ModelState);
 
-        var userId = GetCurrentUserId();
-        if (userId is null) return Unauthorized("Invalid token");
+            var userId = GetCurrentUserId();
+            if (userId is null)
+                return Unauthorized("Invalid token");
 
-        var result = await _taskService.UpdateAsync(id, request, userId.Value, ct);
-        if (!result.IsSuccess) return Problem(detail: result.Message);
+            var result = await _taskService.AddAsync(request, userId.Value);
+            if (!result.IsSuccess)
+                return Problem(detail: result.Message);
 
-        return Ok(result.Data);
-    }
+            return CreatedAtAction(nameof(Get), new { id = result.Data.Id }, result.Data);
+        }
 
-    [HttpDelete("{id:int}")]
-    public async Task<IActionResult> Delete(int id, CancellationToken ct)
-    {
-        var userId = GetCurrentUserId();
-        if (userId is null) return Unauthorized("Invalid token");
+        [HttpPut("{id:int}")]
+        public async Task<IActionResult> Update(int id, [FromBody] KanbanTaskDTO request, CancellationToken ct)
+        {
+            if (id != request.Id)
+                return BadRequest("Id w ścieżce różni się od Id w treści żądania.");
 
-        var result = await _taskService.DeleteAsync(id, userId.Value, ct);
-        if (!result.IsSuccess) return Problem(detail: result.Message);
+            if (!ModelState.IsValid)
+                return ValidationProblem(ModelState);
 
-        return Ok(new { message = result.Message });
+            var userId = GetCurrentUserId();
+            if (userId is null)
+                return Unauthorized("Invalid token");
+
+            var result = await _taskService.UpdateAsync(request, userId.Value);
+            if (!result.IsSuccess)
+                return Problem(detail: result.Message);
+
+            return Ok(result.Data);
+        }
+
+        [HttpDelete("{id:int}")]
+        public async Task<IActionResult> Delete(int id, CancellationToken ct)
+        {
+            var userId = GetCurrentUserId();
+            if (userId is null)
+                return Unauthorized("Invalid token");
+
+            var result = await _taskService.DeleteAsync(id, userId.Value);
+
+            if (!result.IsSuccess)
+                return Problem(detail: result.Message);
+
+            return Ok(new { message = result.Message });
+        }
     }
 }

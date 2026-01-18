@@ -8,26 +8,18 @@ namespace SkillSwap.Domain.Entities.Database
     {
         [Key]
         public int Id { get; set; }
-
-        public int KanbanTaskId { get; set; }
-
-        [ForeignKey(nameof(KanbanTaskId))]
-        public virtual KanbanTask KanbanTask { get; set; } = null!;
-
+        public KanbanTask kanbanTask { get; set; }
         public int ProfileId { get; set; }
-
-        [MaxLength(2000)]
-        public string Content { get; set; } = string.Empty;
-
-        public int? CheckerId { get; set; }
+        public string Content { get; set; }
+        public int CheckerId { get; set; }
         public DateTime? VerifiedAt { get; set; }
         public DateTime CreatedAt { get; set; }
         public bool IsDeleted { get; set; }
 
         [ForeignKey(nameof(ProfileId))]
-        public virtual Profile Profile { get; set; } = null!;
+        public virtual Profile Profile { get; set; }
 
         [ForeignKey(nameof(CheckerId))]
-        public virtual User? Checker { get; set; } // ✅ nullable, bo CheckerId nullable
+        public virtual User Checker { get; set; }
     }
 }

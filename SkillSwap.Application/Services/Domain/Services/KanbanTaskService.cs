@@ -3,7 +3,6 @@ using SkillSwap.Application.DTO;
 using SkillSwap.Application.Interfaces;
 using SkillSwap.Domain.Entities.Commons;
 using SkillSwap.Domain.Entities.Database;
-using SkillSwap.Domain.Enums;
 using SkillSwap.Domain.Interfaces;
 
 namespace SkillSwap.Application.Services.Domain.Services
@@ -30,35 +29,39 @@ namespace SkillSwap.Application.Services.Domain.Services
             _mapper = mapper;
         }
 
-        private async Task<(bool ok, string message, KanbanBoard? board)> EnsureUserParticipantForBoardAsync(
-            int boardId, int currentUserId, CancellationToken ct)
+        private async Task<(bool ok, string message)> EnsureUserParticipantForBoardAsync(int boardId, int currentUserId)
         {
-            var board = await _boardRepository.GetAsync(boardId, ct);
-            if (board is null) return (false, "KanbanBoard not found", null);
+            var board = await _boardRepository.GetAsync(boardId);
+            if (board is null)
+                return (false, "KanbanBoard not found");
 
-            var match = await _matchRepository.GetAsync(board.MatchId, ct);
-            if (match is null) return (false, "Match not found", null);
+            var match = await _matchRepository.GetAsync(board.MatchId);
+            if (match is null)
+                return (false, "Match not found");
 
-            var profile = await _profileRepository.GetByUserIdAsync(currentUserId, ct);
-            if (profile is null || profile.IsDeleted) return (false, "Profile for current user not found", null);
+            var profile = await _profileRepository.GetByUserIdAsync(currentUserId);
+            if (profile is null || profile.IsDeleted)
+                return (false, "Profile for current user not found");
 
             if (match.Profile1Id != profile.Id && match.Profile2Id != profile.Id)
-                return (false, "You are not a participant of this match", null);
+                return (false, "You are not a participant of this match");
 
-            return (true, string.Empty, board);
+            return (true, string.Empty);
         }
 
-        public async Task<Result<KanbanTaskDTO>> GetAsync(int id, CancellationToken ct)
+        public async Task<Result<KanbanTaskDTO>> GetAsync(int id)
         {
             try
             {
-                var task = await _taskRepository.GetAsync(id, ct);
-                if (task is null) return new() { IsSuccess = false, Message = "KanbanTask not found" };
+                var task = await _taskRepository.GetAsync(id);
+                if (task is null)
+                    return new() { IsSuccess = false, Message = "KanbanTask not found" };
 
+                var dto = _mapper.Map<KanbanTaskDTO>(task);
                 return new()
                 {
                     IsSuccess = true,
-                    Data = _mapper.Map<KanbanTaskDTO>(task),
+                    Data = dto,
                     Message = "KanbanTask retrieved successfully"
                 };
             }
@@ -68,11 +71,11 @@ namespace SkillSwap.Application.Services.Domain.Services
             }
         }
 
-        public async Task<Result<List<KanbanTaskDTO>>> GetAsync(CancellationToken ct)
+        public async Task<Result<List<KanbanTaskDTO>>> GetAsync()
         {
             try
             {
-                var tasks = await _taskRepository.GetAsync(ct);
+                var tasks = await _taskRepository.GetAsync();
                 var dtos = tasks.Select(t => _mapper.Map<KanbanTaskDTO>(t)).ToList();
 
                 return new()
@@ -88,15 +91,17 @@ namespace SkillSwap.Application.Services.Domain.Services
             }
         }
 
-        public async Task<Result<List<KanbanTaskDTO>>> GetByBoardAsync(int boardId, int currentUserId, CancellationToken ct)
+        public async Task<Result<List<KanbanTaskDTO>>> GetByBoardAsync(int boardId, int currentUserId)
         {
             try
             {
-                var (ok, message, _) = await EnsureUserParticipantForBoardAsync(boardId, currentUserId, ct);
-                if (!ok) return new() { IsSuccess = false, Message = message };
+                var (ok, message) = await EnsureUserParticipantForBoardAsync(boardId, currentUserId);
+                if (!ok)
+                    return new() { IsSuccess = false, Message = message };
 
-                var tasks = await _taskRepository.GetByBoardIdAsync(boardId, ct);
-                var dtos = tasks.Select(t => _mapper.Map<KanbanTaskDTO>(t)).ToList();
+                var tasks = await _taskRepository.GetAsync();
+                var filtered = tasks.Where(t => t.BoardId == boardId).ToList();
+                var dtos = filtered.Select(t => _mapper.Map<KanbanTaskDTO>(t)).ToList();
 
                 return new()
                 {
@@ -111,31 +116,29 @@ namespace SkillSwap.Application.Services.Domain.Services
             }
         }
 
-        public async Task<Result<KanbanTaskDTO>> AddAsync(KanbanTaskCreateDTO dto, int currentUserId, CancellationToken ct)
+        public async Task<Result<KanbanTaskDTO>> AddAsync(KanbanTaskDTO dto, int currentUserId)
         {
             try
             {
-                var (ok, message, _) = await EnsureUserParticipantForBoardAsync(dto.BoardId, currentUserId, ct);
-                if (!ok) return new() { IsSuccess = false, Message = message };
+                if (dto.kanbanBoard == null || dto.kanbanBoard.Id <= 0)
+                    return new() { IsSuccess = false, Message = "KanbanBoard is required" };
 
-                var entity = new KanbanTask
-                {
-                    BoardId = dto.BoardId,
-                    AssignedId = dto.AssignedId ?? 0, // jeśli masz int, a nie nullable
-                    Title = dto.Title,
-                    Description = dto.Description,
-                    Status = KanbanTaskStatus.In_Progress,    // albo default enum
-                    CreatedAt = DateTime.UtcNow,
-                    CompletedAt = null,
-                    IsDeleted = false
-                };
+                var (ok, message) = await EnsureUserParticipantForBoardAsync(dto.kanbanBoard.Id, currentUserId);
+                if (!ok)
+                    return new() { IsSuccess = false, Message = message };
 
-                var added = await _taskRepository.AddAsync(entity, ct);
+                var entity = _mapper.Map<KanbanTask>(dto);
+                entity.BoardId = dto.kanbanBoard.Id;
+                entity.CreatedAt = DateTime.UtcNow;
+                entity.IsDeleted = false;
+
+                var added = await _taskRepository.AddAsync(entity);
+                var mapped = _mapper.Map<KanbanTaskDTO>(added);
 
                 return new()
                 {
                     IsSuccess = true,
-                    Data = _mapper.Map<KanbanTaskDTO>(added),
+                    Data = mapped,
                     Message = "KanbanTask created successfully"
                 };
             }
@@ -145,28 +148,31 @@ namespace SkillSwap.Application.Services.Domain.Services
             }
         }
 
-        public async Task<Result<KanbanTaskDTO>> UpdateAsync(int id, KanbanTaskUpdateDTO dto, int currentUserId, CancellationToken ct)
+        public async Task<Result<KanbanTaskDTO>> UpdateAsync(KanbanTaskDTO dto, int currentUserId)
         {
             try
             {
-                var task = await _taskRepository.GetAsync(id, ct);
-                if (task is null) return new() { IsSuccess = false, Message = "KanbanTask not found" };
+                var task = await _taskRepository.GetAsync(dto.Id);
+                if (task is null)
+                    return new() { IsSuccess = false, Message = "KanbanTask not found" };
 
-                var (ok, message, _) = await EnsureUserParticipantForBoardAsync(task.BoardId, currentUserId, ct);
-                if (!ok) return new() { IsSuccess = false, Message = message };
+                var (ok, message) = await EnsureUserParticipantForBoardAsync(task.BoardId, currentUserId);
+                if (!ok)
+                    return new() { IsSuccess = false, Message = message };
 
                 task.Title = dto.Title;
                 task.Description = dto.Description;
                 task.Status = dto.Status;
-                task.AssignedId = dto.AssignedId ?? task.AssignedId;
+                task.AssignedId = dto.AssignedId;
                 task.CompletedAt = dto.CompletedAt;
 
-                var updated = await _taskRepository.UpdateAsync(task, ct);
+                var updated = await _taskRepository.UpdateAsync(task);
+                var mapped = _mapper.Map<KanbanTaskDTO>(updated);
 
                 return new()
                 {
                     IsSuccess = true,
-                    Data = _mapper.Map<KanbanTaskDTO>(updated),
+                    Data = mapped,
                     Message = "KanbanTask updated successfully"
                 };
             }
@@ -176,17 +182,19 @@ namespace SkillSwap.Application.Services.Domain.Services
             }
         }
 
-        public async Task<Result<string>> DeleteAsync(int id, int currentUserId, CancellationToken ct)
+        public async Task<Result<string>> DeleteAsync(int id, int currentUserId)
         {
             try
             {
-                var task = await _taskRepository.GetAsync(id, ct);
-                if (task is null) return new() { IsSuccess = false, Message = "KanbanTask not found" };
+                var task = await _taskRepository.GetAsync(id);
+                if (task is null)
+                    return new() { IsSuccess = false, Message = "KanbanTask not found" };
 
-                var (ok, message, _) = await EnsureUserParticipantForBoardAsync(task.BoardId, currentUserId, ct);
-                if (!ok) return new() { IsSuccess = false, Message = message };
+                var (ok, message) = await EnsureUserParticipantForBoardAsync(task.BoardId, currentUserId);
+                if (!ok)
+                    return new() { IsSuccess = false, Message = message };
 
-                await _taskRepository.DeleteAsync(task, ct);
+                await _taskRepository.DeleteAsync(task); 
 
                 return new()
                 {
