@@ -13,12 +13,11 @@ namespace SkillSwap.Persistence.Repositories
             _context = context;
         }
 
-        public async Task<List<KanbanBoard>> GetByMatchIdAsync(int matchId, CancellationToken ct)
+        public async Task<List<KanbanBoard>> GetByMatchIdAsync(int matchId)
         {
             return await _context.KanbanBoards
-                .AsNoTracking()
                 .Where(b => !b.IsDeleted && b.MatchId == matchId)
-                .ToListAsync(ct);
+                .ToListAsync();
         }
     }
 }
