@@ -4,6 +4,7 @@ using SkillSwap.Application.Interfaces;
 using SkillSwap.Domain.Entities.Commons;
 using SkillSwap.Domain.Entities.Database;
 using SkillSwap.Domain.Interfaces;
+using DbProfile = SkillSwap.Domain.Entities.Database.Profile;
 
 namespace SkillSwap.Application.Services.Domain.Services
 {
@@ -32,43 +33,43 @@ namespace SkillSwap.Application.Services.Domain.Services
             _mapper = mapper;
         }
 
-        private async Task<(bool ok, string message)> EnsureUserParticipantForTaskAsync(int taskId, int currentUserId)
+        private async Task<(bool ok, string message, KanbanTask? task, DbProfile? profile)>
+            EnsureUserParticipantForTaskAsync(int taskId, int currentUserId, CancellationToken ct)
         {
-            var task = await _taskRepository.GetAsync(taskId);
-            if (task is null)
-                return (false, "KanbanTask not found");
+            var task = await _taskRepository.GetAsync(taskId, ct);
+            if (task is null) return (false, "KanbanTask not found", null, null);
 
-            var board = await _boardRepository.GetAsync(task.BoardId);
-            if (board is null)
-                return (false, "KanbanBoard not found");
+            var board = await _boardRepository.GetAsync(task.BoardId, ct);
+            if (board is null) return (false, "KanbanBoard not found", null, null);
 
-            var match = await _matchRepository.GetAsync(board.MatchId);
-            if (match is null)
-                return (false, "Match not found");
+            var match = await _matchRepository.GetAsync(board.MatchId, ct);
+            if (match is null) return (false, "Match not found", null, null);
 
-            var profile = await _profileRepository.GetByUserIdAsync(currentUserId);
+            var profile = await _profileRepository.GetByUserIdAsync(currentUserId, ct);
             if (profile is null || profile.IsDeleted)
-                return (false, "Profile for current user not found");
+                return (false, "Profile for current user not found", null, null);
 
             if (match.Profile1Id != profile.Id && match.Profile2Id != profile.Id)
-                return (false, "You are not a participant of this match");
+                return (false, "You are not a participant of this match", null, null);
 
-            return (true, string.Empty);
+            return (true, string.Empty, task, profile);
         }
 
-        public async Task<Result<KanbanTaskAnswerDTO>> GetAsync(int id)
+        public async Task<Result<KanbanTaskAnswerDTO>> GetAsync(int id, CancellationToken ct)
         {
             try
             {
-                var answer = await _answerRepository.GetAsync(id);
+                var answer = await _answerRepository.GetAsync(id, ct);
                 if (answer is null)
                     return new() { IsSuccess = false, Message = "KanbanTaskAnswer not found" };
 
-                var dto = _mapper.Map<KanbanTaskAnswerDTO>(answer);
+                // (opcjonalnie) możesz tu dopisać kontrolę dostępu
+                // var access = await EnsureUserParticipantForTaskAsync(answer.KanbanTaskId, currentUserId, ct);
+
                 return new()
                 {
                     IsSuccess = true,
-                    Data = dto,
+                    Data = _mapper.Map<KanbanTaskAnswerDTO>(answer),
                     Message = "KanbanTaskAnswer retrieved successfully"
                 };
             }
@@ -78,11 +79,15 @@ namespace SkillSwap.Application.Services.Domain.Services
             }
         }
 
-        public async Task<Result<List<KanbanTaskAnswerDTO>>> GetAsync()
+        public async Task<Result<List<KanbanTaskAnswerDTO>>> GetByTaskAsync(int taskId, int currentUserId, CancellationToken ct)
         {
             try
             {
-                var answers = await _answerRepository.GetAsync();
+                var access = await EnsureUserParticipantForTaskAsync(taskId, currentUserId, ct);
+                if (!access.ok)
+                    return new() { IsSuccess = false, Message = access.message };
+
+                var answers = await _answerRepository.GetByTaskIdAsync(taskId, ct);
                 var dtos = answers.Select(a => _mapper.Map<KanbanTaskAnswerDTO>(a)).ToList();
 
                 return new()
@@ -98,63 +103,38 @@ namespace SkillSwap.Application.Services.Domain.Services
             }
         }
 
-        public async Task<Result<List<KanbanTaskAnswerDTO>>> GetByTaskAsync(int taskId, int currentUserId)
+        public async Task<Result<KanbanTaskAnswerDTO>> AddAsync(KanbanTaskAnswerCreateDTO dto, int currentUserId, CancellationToken ct)
         {
             try
             {
-                var (ok, message) = await EnsureUserParticipantForTaskAsync(taskId, currentUserId);
-                if (!ok)
-                    return new() { IsSuccess = false, Message = message };
+                var access = await EnsureUserParticipantForTaskAsync(dto.TaskId, currentUserId, ct);
+                if (!access.ok)
+                    return new() { IsSuccess = false, Message = access.message };
 
-                var answers = await _answerRepository.GetAsync();
-                var filtered = answers.Where(a => a.kanbanTask != null && a.kanbanTask.Id == taskId).ToList();
-                var dtos = filtered.Select(a => _mapper.Map<KanbanTaskAnswerDTO>(a)).ToList();
-
-                return new()
+                var entity = new KanbanTaskAnswer
                 {
-                    IsSuccess = true,
-                    Data = dtos,
-                    Message = "KanbanTaskAnswers retrieved successfully"
+                    // ✅ FK do taska
+                    KanbanTaskId = dto.TaskId,
+
+                    // ✅ autor to profil aktualnego usera
+                    ProfileId = access.profile!.Id,
+
+                    Content = dto.Content,
+                    CreatedAt = DateTime.UtcNow,
+
+                    // ✅ dopiero Verify ustawia te pola
+                    CheckerId = null,
+                    VerifiedAt = null,
+
+                    IsDeleted = false
                 };
-            }
-            catch (Exception ex)
-            {
-                return new() { IsSuccess = false, Message = $"Error retrieving KanbanTaskAnswers: {ex.Message}" };
-            }
-        }
 
-        public async Task<Result<KanbanTaskAnswerDTO>> AddAsync(KanbanTaskAnswerDTO dto, int currentUserId)
-        {
-            try
-            {
-                if (dto.kanbanTask == null || dto.kanbanTask.Id <= 0)
-                    return new() { IsSuccess = false, Message = "KanbanTask is required" };
-
-                var (ok, message) = await EnsureUserParticipantForTaskAsync(dto.kanbanTask.Id, currentUserId);
-                if (!ok)
-                    return new() { IsSuccess = false, Message = message };
-
-                var profile = await _profileRepository.GetByUserIdAsync(currentUserId);
-                if (profile is null || profile.IsDeleted)
-                    return new() { IsSuccess = false, Message = "Profile for current user not found" };
-
-                var task = await _taskRepository.GetAsync(dto.kanbanTask.Id);
-                if (task is null)
-                    return new() { IsSuccess = false, Message = "KanbanTask not found" };
-
-                var entity = _mapper.Map<KanbanTaskAnswer>(dto);
-                entity.ProfileId = profile.Id;
-                entity.kanbanTask = task;
-                entity.CreatedAt = DateTime.UtcNow;
-                entity.IsDeleted = false;
-
-                var added = await _answerRepository.AddAsync(entity);
-                var mapped = _mapper.Map<KanbanTaskAnswerDTO>(added);
+                var added = await _answerRepository.AddAsync(entity, ct);
 
                 return new()
                 {
                     IsSuccess = true,
-                    Data = mapped,
+                    Data = _mapper.Map<KanbanTaskAnswerDTO>(added),
                     Message = "KanbanTaskAnswer created successfully"
                 };
             }
@@ -164,41 +144,29 @@ namespace SkillSwap.Application.Services.Domain.Services
             }
         }
 
-        public async Task<Result<KanbanTaskAnswerDTO>> UpdateAsync(KanbanTaskAnswerDTO dto, int currentUserId)
+        public async Task<Result<KanbanTaskAnswerDTO>> UpdateAsync(int id, KanbanTaskAnswerUpdateDTO dto, int currentUserId, CancellationToken ct)
         {
             try
             {
-                var answer = await _answerRepository.GetAsync(dto.Id);
+                var answer = await _answerRepository.GetAsync(id, ct);
                 if (answer is null)
                     return new() { IsSuccess = false, Message = "KanbanTaskAnswer not found" };
 
-                var profile = await _profileRepository.GetAsync(answer.ProfileId);
-                if (profile is null)
-                    return new() { IsSuccess = false, Message = "Profile not found" };
+                var access = await EnsureUserParticipantForTaskAsync(answer.KanbanTaskId, currentUserId, ct);
+                if (!access.ok)
+                    return new() { IsSuccess = false, Message = access.message };
 
-                bool isOwner = profile.UserId == currentUserId;
-                bool isChecker = answer.CheckerId == currentUserId;
+                if (answer.ProfileId != access.profile!.Id)
+                    return new() { IsSuccess = false, Message = "You are not the author of this answer" };
 
-                if (!isOwner && !isChecker)
-                    return new() { IsSuccess = false, Message = "You are not allowed to update this answer" };
+                answer.Content = dto.Content;
 
-                if (isOwner)
-                {
-                    answer.Content = dto.Content;
-                }
-
-                if (isChecker)
-                {
-                    answer.VerifiedAt = dto.VerifiedAt ?? DateTime.UtcNow;
-                }
-
-                var updated = await _answerRepository.UpdateAsync(answer);
-                var mapped = _mapper.Map<KanbanTaskAnswerDTO>(updated);
+                var updated = await _answerRepository.UpdateAsync(answer, ct);
 
                 return new()
                 {
                     IsSuccess = true,
-                    Data = mapped,
+                    Data = _mapper.Map<KanbanTaskAnswerDTO>(updated),
                     Message = "KanbanTaskAnswer updated successfully"
                 };
             }
@@ -208,25 +176,57 @@ namespace SkillSwap.Application.Services.Domain.Services
             }
         }
 
-        public async Task<Result<string>> DeleteAsync(int id, int currentUserId)
+        public async Task<Result<KanbanTaskAnswerDTO>> VerifyAsync(int id, int currentUserId, CancellationToken ct)
         {
             try
             {
-                var answer = await _answerRepository.GetAsync(id);
+                var answer = await _answerRepository.GetAsync(id, ct);
                 if (answer is null)
                     return new() { IsSuccess = false, Message = "KanbanTaskAnswer not found" };
 
-                var profile = await _profileRepository.GetAsync(answer.ProfileId);
-                if (profile is null)
-                    return new() { IsSuccess = false, Message = "Profile not found" };
+                var access = await EnsureUserParticipantForTaskAsync(answer.KanbanTaskId, currentUserId, ct);
+                if (!access.ok)
+                    return new() { IsSuccess = false, Message = access.message };
 
-                bool isOwner = profile.UserId == currentUserId;
-                bool isChecker = answer.CheckerId == currentUserId;
+                // ✅ nie pozwalaj weryfikować samemu sobie (opcjonalnie)
+                if (answer.ProfileId == access.profile!.Id)
+                    return new() { IsSuccess = false, Message = "You cannot verify your own answer" };
 
-                if (!isOwner && !isChecker)
-                    return new() { IsSuccess = false, Message = "You are not allowed to delete this answer" };
+                answer.CheckerId = currentUserId;
+                answer.VerifiedAt = DateTime.UtcNow;
 
-                await _answerRepository.DeleteAsync(answer); 
+                var updated = await _answerRepository.UpdateAsync(answer, ct);
+
+                return new()
+                {
+                    IsSuccess = true,
+                    Data = _mapper.Map<KanbanTaskAnswerDTO>(updated),
+                    Message = "KanbanTaskAnswer verified"
+                };
+            }
+            catch (Exception ex)
+            {
+                return new() { IsSuccess = false, Message = $"Error verifying KanbanTaskAnswer: {ex.Message}" };
+            }
+        }
+
+        public async Task<Result<string>> DeleteAsync(int id, int currentUserId, CancellationToken ct)
+        {
+            try
+            {
+                var answer = await _answerRepository.GetAsync(id, ct);
+                if (answer is null)
+                    return new() { IsSuccess = false, Message = "KanbanTaskAnswer not found" };
+
+                var access = await EnsureUserParticipantForTaskAsync(answer.KanbanTaskId, currentUserId, ct);
+                if (!access.ok)
+                    return new() { IsSuccess = false, Message = access.message };
+
+                // ✅ tylko autor może usuwać
+                if (answer.ProfileId != access.profile!.Id)
+                    return new() { IsSuccess = false, Message = "You are not the author of this answer" };
+
+                await _answerRepository.DeleteAsync(answer, ct);
 
                 return new()
                 {

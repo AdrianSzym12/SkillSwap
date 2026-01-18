@@ -34,22 +34,14 @@ namespace SkillSwap.API.Controllers
         [HttpGet("{id:int}")]
         public async Task<IActionResult> Get(int id, CancellationToken ct)
         {
-            var result = await _boardService.GetAsync(id);
+            var result = await _boardService.GetAsync(id, ct);
             if (!result.IsSuccess)
                 return Problem(detail: result.Message);
 
             return Ok(result.Data);
         }
 
-        [HttpGet]
-        public async Task<IActionResult> GetAll(CancellationToken ct)
-        {
-            var result = await _boardService.GetAsync();
-            if (!result.IsSuccess)
-                return Problem(detail: result.Message);
-
-            return Ok(result.Data);
-        }
+        
 
         [HttpGet("match/{matchId:int}")]
         public async Task<IActionResult> GetByMatch(int matchId, CancellationToken ct)
@@ -58,7 +50,7 @@ namespace SkillSwap.API.Controllers
             if (userId is null)
                 return Unauthorized("Invalid token");
 
-            var result = await _boardService.GetByMatchAsync(matchId, userId.Value);
+            var result = await _boardService.GetByMatchAsync(matchId, userId.Value, ct);
             if (!result.IsSuccess)
                 return Problem(detail: result.Message);
 
@@ -66,7 +58,7 @@ namespace SkillSwap.API.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> Create([FromBody] KanbanBoardDTO request, CancellationToken ct)
+        public async Task<IActionResult> Create([FromBody] KanbanBoardCreateDTO request, CancellationToken ct)
         {
             if (!ModelState.IsValid)
                 return ValidationProblem(ModelState);
@@ -75,19 +67,17 @@ namespace SkillSwap.API.Controllers
             if (userId is null)
                 return Unauthorized("Invalid token");
 
-            var result = await _boardService.AddAsync(request, userId.Value);
+            var result = await _boardService.AddAsync(request, userId.Value, ct);
             if (!result.IsSuccess)
                 return Problem(detail: result.Message);
 
             return CreatedAtAction(nameof(Get), new { id = result.Data.Id }, result.Data);
         }
 
-        [HttpPut("{id:int}")]
-        public async Task<IActionResult> Update(int id, [FromBody] KanbanBoardDTO request, CancellationToken ct)
-        {
-            if (id != request.Id)
-                return BadRequest("Id w ścieżce różni się od Id w treści żądania.");
 
+        [HttpPut("{id:int}")]
+        public async Task<IActionResult> Update(int id, [FromBody] KanbanBoardUpdateDTO request, CancellationToken ct)
+        {
             if (!ModelState.IsValid)
                 return ValidationProblem(ModelState);
 
@@ -95,7 +85,7 @@ namespace SkillSwap.API.Controllers
             if (userId is null)
                 return Unauthorized("Invalid token");
 
-            var result = await _boardService.UpdateAsync(request, userId.Value);
+            var result = await _boardService.UpdateAsync(id, request, userId.Value, ct);
             if (!result.IsSuccess)
                 return Problem(detail: result.Message);
 
@@ -109,7 +99,7 @@ namespace SkillSwap.API.Controllers
             if (userId is null)
                 return Unauthorized("Invalid token");
 
-            var result = await _boardService.DeleteAsync(id, userId.Value);
+            var result = await _boardService.DeleteAsync(id, userId.Value, ct);
             if (!result.IsSuccess)
                 return Problem(detail: result.Message);
 
